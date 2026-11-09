@@ -1,17 +1,21 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-import {defineInjectable, inject} from '@angular/core';
-
-import {DOCUMENT} from './dom_tokens';
+import {
+  inject,
+  ɵɵdefineInjectable,
+  DOCUMENT,
+  ɵformatRuntimeError as formatRuntimeError,
+} from '@angular/core';
+import {RuntimeErrorCode} from './errors';
 
 /**
- * Manages the scroll position.
+ * Defines a scroll position manager. Implemented by `BrowserViewportScroller`.
  *
  * @publicApi
  */
@@ -19,59 +23,68 @@ export abstract class ViewportScroller {
   // De-sugared tree-shakable injection
   // See #23917
   /** @nocollapse */
-  static ngInjectableDef = defineInjectable(
-      {providedIn: 'root', factory: () => new BrowserViewportScroller(inject(DOCUMENT), window)});
+  static ɵprov = /** @pureOrBreakMyCode */ /* @__PURE__ */ ɵɵdefineInjectable({
+    token: ViewportScroller,
+    providedIn: 'root',
+    factory: () =>
+      typeof ngServerMode !== 'undefined' && ngServerMode
+        ? new NullViewportScroller()
+        : new BrowserViewportScroller(inject(DOCUMENT), window),
+  });
 
   /**
    * Configures the top offset used when scrolling to an anchor.
+   * @param offset A position in screen coordinates (a tuple with x and y values)
+   * or a function that returns the top offset position.
    *
-   * When given a tuple with two number, the service will always use the numbers.
-   * When given a function, the service will invoke the function every time it restores scroll
-   * position.
    */
-  abstract setOffset(offset: [number, number]|(() => [number, number])): void;
+  abstract setOffset(offset: [number, number] | (() => [number, number])): void;
 
   /**
-   * Returns the current scroll position.
+   * Retrieves the current scroll position.
+   * @returns A position in screen coordinates (a tuple with x and y values).
    */
   abstract getScrollPosition(): [number, number];
 
   /**
-   * Sets the scroll position.
+   * Scrolls to a specified position.
+   * @param position A position in screen coordinates (a tuple with x and y values).
    */
-  abstract scrollToPosition(position: [number, number]): void;
+  abstract scrollToPosition(position: [number, number], options?: ScrollOptions): void;
 
   /**
-   * Scrolls to the provided anchor.
+   * Scrolls to an anchor element.
+   * @param anchor The ID of the anchor element.
+   * @param options Scroll options
    */
-  abstract scrollToAnchor(anchor: string): void;
+  abstract scrollToAnchor(anchor: string, options?: ScrollOptions): void;
 
   /**
-   *
    * Disables automatic scroll restoration provided by the browser.
-   *
    * See also [window.history.scrollRestoration
-   * info](https://developers.google.com/web/updates/2015/09/history-api-scroll-restoration)
+   * info](https://developers.google.com/web/updates/2015/09/history-api-scroll-restoration).
    */
-  abstract setHistoryScrollRestoration(scrollRestoration: 'auto'|'manual'): void;
+  abstract setHistoryScrollRestoration(scrollRestoration: 'auto' | 'manual'): void;
 }
 
 /**
- * Manages the scroll position.
+ * Manages the scroll position for a browser window.
  */
 export class BrowserViewportScroller implements ViewportScroller {
   private offset: () => [number, number] = () => [0, 0];
 
-  constructor(private document: any, private window: any) {}
+  constructor(
+    private document: Document,
+    private window: Window,
+  ) {}
 
   /**
    * Configures the top offset used when scrolling to an anchor.
+   * @param offset A position in screen coordinates (a tuple with x and y values)
+   * or a function that returns the top offset position.
    *
-   * * When given a number, the service will always use the number.
-   * * When given a function, the service will invoke the function every time it restores scroll
-   * position.
    */
-  setOffset(offset: [number, number]|(() => [number, number])): void {
+  setOffset(offset: [number, number] | (() => [number, number])): void {
     if (Array.isArray(offset)) {
       this.offset = () => offset;
     } else {
@@ -80,95 +93,142 @@ export class BrowserViewportScroller implements ViewportScroller {
   }
 
   /**
-   * Returns the current scroll position.
+   * Retrieves the current scroll position.
+   * @returns The position in screen coordinates.
    */
   getScrollPosition(): [number, number] {
-    if (this.supportScrollRestoration()) {
-      return [this.window.scrollX, this.window.scrollY];
-    } else {
-      return [0, 0];
-    }
+    return [this.window.scrollX, this.window.scrollY];
   }
 
   /**
    * Sets the scroll position.
+   * @param position The new position in screen coordinates.
    */
-  scrollToPosition(position: [number, number]): void {
-    if (this.supportScrollRestoration()) {
-      this.window.scrollTo(position[0], position[1]);
-    }
+  scrollToPosition(position: [number, number], options?: ScrollOptions): void {
+    this.window.scrollTo({...options, left: position[0], top: position[1]});
   }
 
   /**
-   * Scrolls to the provided anchor.
+   * Scrolls to an element and attempts to focus the element.
+   *
+   * Note that the function name here is misleading in that the target string may be an ID for a
+   * non-anchor element.
+   *
+   * @param target The ID of an element or name of the anchor.
+   *
+   * @see https://html.spec.whatwg.org/#the-indicated-part-of-the-document
+   * @see https://html.spec.whatwg.org/#scroll-to-fragid
    */
-  scrollToAnchor(anchor: string): void {
-    if (this.supportScrollRestoration()) {
-      const elSelectedById = this.document.querySelector(`#${anchor}`);
-      if (elSelectedById) {
-        this.scrollToElement(elSelectedById);
-        return;
-      }
-      const elSelectedByName = this.document.querySelector(`[name='${anchor}']`);
-      if (elSelectedByName) {
-        this.scrollToElement(elSelectedByName);
-        return;
-      }
+  scrollToAnchor(target: string, options?: ScrollOptions): void {
+    const elSelected = findAnchorFromDocument(this.document, target);
+
+    if (elSelected) {
+      this.scrollToElement(elSelected, options);
+      // After scrolling to the element, the spec dictates that we follow the focus steps for the
+      // target. Rather than following the robust steps, simply attempt focus.
+      // Use `preventScroll: true` to avoid extra scroll that breaks smooth scrolling.
+      // @see https://html.spec.whatwg.org/#get-the-focusable-area
+      // @see https://developer.mozilla.org/en-US/docs/Web/API/HTMLOrForeignElement/focus
+      // @see https://html.spec.whatwg.org/#focusable-area
+      // @see https://www.yanandcoffee.com/2020/05/08/accessible-smooth-scrolling-and-focus-management-solutions/
+      elSelected.focus({preventScroll: true});
     }
   }
 
   /**
    * Disables automatic scroll restoration provided by the browser.
    */
-  setHistoryScrollRestoration(scrollRestoration: 'auto'|'manual'): void {
-    if (this.supportScrollRestoration()) {
-      const history = this.window.history;
-      if (history && history.scrollRestoration) {
-        history.scrollRestoration = scrollRestoration;
-      }
+  setHistoryScrollRestoration(scrollRestoration: 'auto' | 'manual'): void {
+    try {
+      this.window.history.scrollRestoration = scrollRestoration;
+    } catch {
+      console.warn(
+        formatRuntimeError(
+          RuntimeErrorCode.SCROLL_RESTORATION_UNSUPPORTED,
+          ngDevMode &&
+            'Failed to set `window.history.scrollRestoration`. ' +
+              'This may occur when:\n' +
+              '• The script is running inside a sandboxed iframe\n' +
+              '• The window is partially navigated or inactive\n' +
+              '• The script is executed in an untrusted or special context (e.g., test runners, browser extensions, or content previews)\n' +
+              'Scroll position may not be preserved across navigation.',
+        ),
+      );
     }
   }
 
-  private scrollToElement(el: any): void {
+  /**
+   * Scrolls to an element using the native offset and the specified offset set on this scroller.
+   *
+   * The offset can be used when we know that there is a floating header and scrolling naively to an
+   * element (ex: `scrollIntoView`) leaves the element hidden behind the floating header.
+   */
+  private scrollToElement(el: HTMLElement, options?: ScrollOptions): void {
     const rect = el.getBoundingClientRect();
     const left = rect.left + this.window.pageXOffset;
     const top = rect.top + this.window.pageYOffset;
     const offset = this.offset();
-    this.window.scrollTo(left - offset[0], top - offset[1]);
-  }
-
-  /**
-   * We only support scroll restoration when we can get a hold of window.
-   * This means that we do not support this behavior when running in a web worker.
-   *
-   * Lifting this restriction right now would require more changes in the dom adapter.
-   * Since webworkers aren't widely used, we will lift it once RouterScroller is
-   * battle-tested.
-   */
-  private supportScrollRestoration(): boolean {
-    try {
-      return !!this.window && !!this.window.scrollTo;
-    } catch (e) {
-      return false;
-    }
+    this.window.scrollTo({
+      ...options,
+      left: left - offset[0],
+      top: top - offset[1],
+    });
   }
 }
 
+function findAnchorFromDocument(document: Document, target: string): HTMLElement | null {
+  const documentResult = document.getElementById(target) || document.getElementsByName(target)[0];
+
+  if (documentResult) {
+    return documentResult;
+  }
+
+  // `getElementById` and `getElementsByName` won't pierce through the shadow DOM so we
+  // have to traverse the DOM manually and do the lookup through the shadow roots.
+  if (
+    typeof document.createTreeWalker === 'function' &&
+    document.body &&
+    typeof document.body.attachShadow === 'function'
+  ) {
+    const treeWalker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+    let currentNode = treeWalker.currentNode as HTMLElement | null;
+
+    while (currentNode) {
+      const shadowRoot = currentNode.shadowRoot;
+
+      if (shadowRoot) {
+        // Note that `ShadowRoot` doesn't support `getElementsByName`
+        // so we have to fall back to `querySelector`.
+        const result =
+          shadowRoot.getElementById(target) ||
+          shadowRoot.querySelector(`[name="${CSS.escape(target)}"]`);
+        if (result) {
+          return result;
+        }
+      }
+
+      currentNode = treeWalker.nextNode() as HTMLElement | null;
+    }
+  }
+
+  return null;
+}
 
 /**
- * Provides an empty implementation of the viewport scroller. This will
- * live in @angular/common as it will be used by both platform-server and platform-webworker.
+ * Provides an empty implementation of the viewport scroller.
  */
 export class NullViewportScroller implements ViewportScroller {
   /**
    * Empty implementation
    */
-  setOffset(offset: [number, number]|(() => [number, number])): void {}
+  setOffset(offset: [number, number] | (() => [number, number])): void {}
 
   /**
    * Empty implementation
    */
-  getScrollPosition(): [number, number] { return [0, 0]; }
+  getScrollPosition(): [number, number] {
+    return [0, 0];
+  }
 
   /**
    * Empty implementation
@@ -178,10 +238,10 @@ export class NullViewportScroller implements ViewportScroller {
   /**
    * Empty implementation
    */
-  scrollToAnchor(anchor: string): void {}
+  scrollToAnchor(anchor: string, options?: ScrollOptions): void {}
 
   /**
    * Empty implementation
    */
-  setHistoryScrollRestoration(scrollRestoration: 'auto'|'manual'): void {}
+  setHistoryScrollRestoration(scrollRestoration: 'auto' | 'manual'): void {}
 }

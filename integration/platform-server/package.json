@@ -1,43 +1,52 @@
 {
-  "name": "platform-server-integration",
+  "name": "platform-server",
   "version": "0.0.0",
-  "license": "MIT",
-  "description": "Integration tests for @angular/platform-server",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/angular/angular.git"
+  "scripts": {
+    "ng": "ng",
+    "#comment-1": "The below is used is for payload size checks",
+    "build": "ng build standalone && ng build ngmodule",
+    "#comment-2": "The below is used is for integration tests",
+    "build:ngmodule": "ng run ngmodule:build:development",
+    "serve:ngmodule": "node ./dist/ngmodule/server/server.mjs",
+    "test:ngmodule": "pnpm build:ngmodule && concurrently \"pnpm serve:ngmodule\" \"jasmine --config=e2e/jasmine.json 'e2e/src/**/*-spec.ts'\" --kill-others --success first",
+    "build:standalone": "ng run standalone:build:development",
+    "serve:standalone": "node ./dist/standalone/server/server.mjs",
+    "test:standalone": "pnpm build:standalone && concurrently \"pnpm serve:standalone\" \"jasmine --config=e2e/jasmine.json 'e2e/src/**/*-spec.ts'\" --kill-others --success first",
+    "test": "ng version && pnpm test:standalone && pnpm test:ngmodule"
   },
+  "private": true,
   "dependencies": {
-    "@angular/animations": "file:../../dist/packages-dist/animations",
-    "@angular/common": "file:../../dist/packages-dist/common",
-    "@angular/compiler": "file:../../dist/packages-dist/compiler",
-    "@angular/compiler-cli": "file:../../dist/packages-dist/compiler-cli",
-    "@angular/core": "file:../../dist/packages-dist/core",
-    "@angular/http": "file:../../dist/packages-dist/http",
-    "@angular/platform-browser": "file:../../dist/packages-dist/platform-browser",
-    "@angular/platform-browser-dynamic": "file:../../dist/packages-dist/platform-browser-dynamic",
-    "@angular/platform-server": "file:../../dist/packages-dist/platform-server",
-    "express": "^4.14.1",
-    "rxjs": "file:../../node_modules/rxjs",
-    "typescript": "file:../../node_modules/typescript",
-    "zone.js": "file:../../node_modules/zone.js"
+    "@angular/animations": "link:./in-existing-linked-by-bazel",
+    "@angular/common": "link:./in-existing-linked-by-bazel",
+    "@angular/compiler": "link:./in-existing-linked-by-bazel",
+    "@angular/core": "link:./in-existing-linked-by-bazel",
+    "@angular/forms": "link:./in-existing-linked-by-bazel",
+    "@angular/platform-browser": "link:./in-existing-linked-by-bazel",
+    "@angular/platform-server": "link:./in-existing-linked-by-bazel",
+    "@angular/router": "link:./in-existing-linked-by-bazel",
+    "@angular/ssr": "22.3.0-next.4",
+    "express": "~5.3.0",
+    "rxjs": "^7.0.0",
+    "tslib": "^2.3.0",
+    "xhr2": "^0.2.0",
+    "zone.js": "0.16.3"
   },
   "devDependencies": {
-    "@types/jasmine": "2.5.41",
-    "babel-core": "^6.23.1",
-    "babel-loader": "^6.4.0",
-    "babel-preset-es2015": "^6.22.0",
-    "concurrently": "3.1.0",
-    "protractor": "file:../../node_modules/protractor",
-    "raw-loader": "^0.5.1",
-    "webpack": "^2.2.1"
+    "@angular-devkit/build-angular": "22.3.0-next.4",
+    "@angular/build": "22.3.0-next.4",
+    "@angular/cli": "22.3.0-next.4",
+    "@angular/compiler-cli": "link:./in-existing-linked-by-bazel",
+    "@types/express": "^5.0.3",
+    "@types/jasmine": "^7.0.0",
+    "@types/node": "^20.14.8",
+    "@types/selenium-webdriver": "3.0.7",
+    "concurrently": "10.0.7",
+    "jasmine": "7.0.0",
+    "jasmine-core": "7.0.2",
+    "jasmine-spec-reporter": "~7.0.0",
+    "selenium-webdriver": "3.5.0",
+    "ts-node": "^10.9.1",
+    "typescript": "6.0.3"
   },
-  "scripts": {
-    "postinstall": "webdriver-manager update --gecko false --standalone false $CHROMEDRIVER_VERSION_ARG",
-    "build": "./build.sh",
-    "test": "npm run build && concurrently \"npm run serve\" \"npm run protractor\" --kill-others --success first",
-    "serve": "node built/server-bundle.js",
-    "preprotractor": "tsc -p e2e",
-    "protractor": "protractor e2e/protractor.config.js"
-  }
+  "packageManager": "pnpm@12.18.0"
 }

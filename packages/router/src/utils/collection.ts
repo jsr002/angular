@@ -1,18 +1,16 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-import {NgModuleFactory, ɵisObservable as isObservable, ɵisPromise as isPromise} from '@angular/core';
-import {Observable, from, of } from 'rxjs';
-import {concatAll, last as lastValue, map} from 'rxjs/operators';
+import {ɵisPromise as isPromise} from '@angular/core';
+import {from, isObservable, Observable, of} from 'rxjs';
+import {firstValueFrom} from './first_value_from';
 
-import {PRIMARY_OUTLET} from '../shared';
-
-export function shallowEqualArrays(a: any[], b: any[]): boolean {
+export function shallowEqualArrays(a: readonly any[], b: readonly any[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; ++i) {
     if (!shallowEqual(a[i], b[i])) return false;
@@ -20,16 +18,21 @@ export function shallowEqualArrays(a: any[], b: any[]): boolean {
   return true;
 }
 
-export function shallowEqual(a: {[x: string]: any}, b: {[x: string]: any}): boolean {
-  const k1 = Object.keys(a);
-  const k2 = Object.keys(b);
-  if (k1.length != k2.length) {
+export function shallowEqual(
+  a: {[key: string | symbol]: any},
+  b: {[key: string | symbol]: any},
+): boolean {
+  // While `undefined` should never be possible, it would sometimes be the case in IE 11
+  // and pre-chromium Edge. The check below accounts for this edge case.
+  const k1 = a ? getDataKeys(a) : undefined;
+  const k2 = b ? getDataKeys(b) : undefined;
+  if (!k1 || !k2 || k1.length != k2.length) {
     return false;
   }
-  let key: string;
+  let key: string | symbol;
   for (let i = 0; i < k1.length; i++) {
     key = k1[i];
-    if (a[key] !== b[key]) {
+    if (!equalArraysOrString(a[key], b[key])) {
       return false;
     }
   }
@@ -37,58 +40,37 @@ export function shallowEqual(a: {[x: string]: any}, b: {[x: string]: any}): bool
 }
 
 /**
- * Flattens single-level nested arrays.
+ * Gets the keys of an object, including `symbol` keys.
  */
-export function flatten<T>(arr: T[][]): T[] {
-  return Array.prototype.concat.apply([], arr);
+export function getDataKeys(obj: Object): Array<string | symbol> {
+  return [...Object.keys(obj), ...Object.getOwnPropertySymbols(obj)];
+}
+
+/**
+ * Test equality for arrays of strings or a string.
+ */
+export function equalArraysOrString(
+  a: string | readonly string[],
+  b: string | readonly string[],
+): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    const aSorted = [...a].sort();
+    const bSorted = [...b].sort();
+    return aSorted.every((val, index) => bSorted[index] === val);
+  } else {
+    return a === b;
+  }
 }
 
 /**
  * Return the last element of an array.
  */
-export function last<T>(a: T[]): T|null {
+export function last<T>(a: readonly T[]): T | null {
   return a.length > 0 ? a[a.length - 1] : null;
 }
 
-/**
- * Verifys all booleans in an array are `true`.
- */
-export function and(bools: boolean[]): boolean {
-  return !bools.some(v => !v);
-}
-
-export function forEach<K, V>(map: {[key: string]: V}, callback: (v: V, k: string) => void): void {
-  for (const prop in map) {
-    if (map.hasOwnProperty(prop)) {
-      callback(map[prop], prop);
-    }
-  }
-}
-
-export function waitForMap<A, B>(
-    obj: {[k: string]: A}, fn: (k: string, a: A) => Observable<B>): Observable<{[k: string]: B}> {
-  if (Object.keys(obj).length === 0) {
-    return of ({});
-  }
-
-  const waitHead: Observable<B>[] = [];
-  const waitTail: Observable<B>[] = [];
-  const res: {[k: string]: B} = {};
-
-  forEach(obj, (a: A, k: string) => {
-    const mapped = fn(k, a).pipe(map((r: B) => res[k] = r));
-    if (k === PRIMARY_OUTLET) {
-      waitHead.push(mapped);
-    } else {
-      waitTail.push(mapped);
-    }
-  });
-
-  // Closure compiler has problem with using spread operator here. So just using Array.concat.
-  return of .apply(null, waitHead.concat(waitTail)).pipe(concatAll(), lastValue(), map(() => res));
-}
-
-export function wrapIntoObservable<T>(value: T | NgModuleFactory<T>| Promise<T>| Observable<T>) {
+export function wrapIntoObservable<T>(value: T | Promise<T> | Observable<T>): Observable<T> {
   if (isObservable(value)) {
     return value;
   }
@@ -100,5 +82,12 @@ export function wrapIntoObservable<T>(value: T | NgModuleFactory<T>| Promise<T>|
     return from(Promise.resolve(value));
   }
 
-  return of (value);
+  return of(value);
+}
+
+export function wrapIntoPromise<T>(value: T | Promise<T> | Observable<T>): Promise<T> {
+  if (isObservable(value)) {
+    return firstValueFrom(value);
+  }
+  return Promise.resolve(value);
 }

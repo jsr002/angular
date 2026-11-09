@@ -1,10 +1,10 @@
+load("//tools:defaults.bzl", "ng_project")
+
 package(default_visibility = ["//visibility:public"])
 
 exports_files(["package.json"])
 
-load("//tools:defaults.bzl", "ng_module")
-
-ng_module(
+ng_project(
     name = "testing",
     srcs = glob(
         [
@@ -12,10 +12,17 @@ ng_module(
             "src/**/*.ts",
         ],
     ),
-    module_name = "@angular/common/http/testing",
     deps = [
+        "//:node_modules/rxjs",
         "//packages/common/http",
         "//packages/core",
-        "@rxjs",
     ],
+)
+
+filegroup(
+    name = "files_for_docgen",
+    srcs = glob([
+        "*.ts",
+        "src/**/*.ts",
+    ]) + ["PACKAGE.md"],
 )

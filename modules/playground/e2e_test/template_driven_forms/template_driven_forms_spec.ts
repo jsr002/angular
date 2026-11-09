@@ -1,30 +1,50 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-import {verifyNoBrowserErrors} from 'e2e_util/e2e_util';
-import {browser, by, element} from 'protractor';
+import * as webdriver from 'selenium-webdriver';
+import {
+  createWebDriver,
+  verifyNoBrowserErrors,
+  waitForAngular,
+} from '../../../../packages/examples/test-utils/index.js';
 
-describe('Template-Driven Forms', function() {
+describe('Template-Driven Forms', function () {
+  let driver: webdriver.WebDriver;
+  let baseUrl: string;
 
-  afterEach(verifyNoBrowserErrors);
+  beforeAll(async () => {
+    ({driver, baseUrl} = await createWebDriver());
+  });
 
-  const URL = 'all/playground/src/template_driven_forms/index.html';
+  afterAll(async () => {
+    await driver.quit();
+  });
 
-  it('should display errors', function() {
-    browser.get(URL);
+  afterEach(async () => {
+    await verifyNoBrowserErrors(driver);
+  });
 
-    const form = element.all(by.css('form')).first();
-    const input = element.all(by.css('#creditCard')).first();
-    const firstName = element.all(by.css('#firstName')).first();
+  it('should display errors', async function () {
+    await driver.get(`${baseUrl}/`);
+    await waitForAngular(driver);
 
-    input.sendKeys('invalid');
-    firstName.click();
+    const forms = await driver.findElements(webdriver.By.css('form'));
+    const input = await driver.findElement(webdriver.By.css('#creditCard'));
+    const firstName = await driver.findElement(webdriver.By.css('#firstName'));
 
-    expect(form.getAttribute('innerHTML')).toContain('is invalid credit card number');
+    await input.sendKeys('invalid');
+    await firstName.click();
+    await waitForAngular(driver);
+
+    const innerHTML = await driver.executeScript<string>(
+      'return arguments[0].innerHTML;',
+      forms[0],
+    );
+    expect(innerHTML).toContain('is invalid credit card number');
   });
 });

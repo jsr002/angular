@@ -1,13 +1,14 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import {Pipe, PipeTransform} from '@angular/core';
-import {invalidPipeArgumentError} from './invalid_pipe_argument_error';
+
+import {invalidPipeArgumentError} from './utils';
 
 /**
  * @ngModule CommonModule
@@ -24,27 +25,31 @@ import {invalidPipeArgumentError} from './invalid_pipe_argument_error';
  *
  * {@example common/pipes/ts/i18n_pipe.ts region='I18nSelectPipeComponent'}
  *
+ * @see [Built-in Pipes](guide/templates/pipes#built-in-pipes)
+ *
  * @publicApi
  */
-@Pipe({name: 'i18nSelect', pure: true})
+@Pipe({
+  name: 'i18nSelect',
+})
 export class I18nSelectPipe implements PipeTransform {
   /**
    * @param value a string to be internationalized.
    * @param mapping an object that indicates the text that should be displayed
    * for different values of the provided `value`.
    */
-  transform(value: string|null|undefined, mapping: {[key: string]: string}): string {
+  transform(value: string | null | undefined, mapping: {[key: string]: string}): string {
     if (value == null) return '';
 
     if (typeof mapping !== 'object' || typeof value !== 'string') {
       throw invalidPipeArgumentError(I18nSelectPipe, mapping);
     }
 
-    if (mapping.hasOwnProperty(value)) {
+    if (Object.hasOwn(mapping, value)) {
       return mapping[value];
     }
 
-    if (mapping.hasOwnProperty('other')) {
+    if (Object.hasOwn(mapping, 'other')) {
       return mapping['other'];
     }
 

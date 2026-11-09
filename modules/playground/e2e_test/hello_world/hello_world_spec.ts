@@ -1,43 +1,65 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-import {verifyNoBrowserErrors} from 'e2e_util/e2e_util';
-import {browser} from 'protractor';
+import * as webdriver from 'selenium-webdriver';
+import {
+  createWebDriver,
+  verifyNoBrowserErrors,
+  waitForAngular,
+} from '../../../../packages/examples/test-utils/index.js';
 
-describe('hello world', function() {
+describe('hello world', function () {
+  let driver: webdriver.WebDriver;
+  let baseUrl: string;
 
-  afterEach(verifyNoBrowserErrors);
-
-  describe('hello world app', function() {
-    const URL = 'all/playground/src/hello_world/index.html';
-
-    it('should greet', function() {
-      browser.get(URL);
-
-      expect(getComponentText('hello-app', '.greeting')).toEqual('hello world!');
-    });
-
-    it('should change greeting', function() {
-      browser.get(URL);
-
-      clickComponentButton('hello-app', '.changeButton');
-      expect(getComponentText('hello-app', '.greeting')).toEqual('howdy world!');
-    });
+  beforeAll(async () => {
+    ({driver, baseUrl} = await createWebDriver());
   });
 
+  afterAll(async () => {
+    await driver.quit();
+  });
+
+  afterEach(async () => {
+    await verifyNoBrowserErrors(driver);
+  });
+
+  describe('hello world app', function () {
+    it('should greet', async function () {
+      await driver.get(`${baseUrl}/`);
+      await waitForAngular(driver);
+
+      expect(await getComponentText(driver, 'hello-app', '.greeting')).toEqual('hello world!');
+    });
+
+    it('should change greeting', async function () {
+      await driver.get(`${baseUrl}/`);
+      await waitForAngular(driver);
+
+      await clickComponentButton(driver, 'hello-app', '.changeButton');
+      await waitForAngular(driver);
+      expect(await getComponentText(driver, 'hello-app', '.greeting')).toEqual('howdy world!');
+    });
+  });
 });
 
-function getComponentText(selector: string, innerSelector: string) {
-  return browser.executeScript(
-      `return document.querySelector("${selector}").querySelector("${innerSelector}").textContent`);
+function getComponentText(driver: webdriver.WebDriver, selector: string, innerSelector: string) {
+  return driver.executeScript(
+    `return document.querySelector("${selector}").querySelector("${innerSelector}").textContent`,
+  );
 }
 
-function clickComponentButton(selector: string, innerSelector: string) {
-  return browser.executeScript(
-      `return document.querySelector("${selector}").querySelector("${innerSelector}").click()`);
+function clickComponentButton(
+  driver: webdriver.WebDriver,
+  selector: string,
+  innerSelector: string,
+) {
+  return driver.executeScript(
+    `return document.querySelector("${selector}").querySelector("${innerSelector}").click()`,
+  );
 }

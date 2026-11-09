@@ -1,29 +1,24 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
-import {APP_ID, NgModule, NgZone, PLATFORM_INITIALIZER, PlatformRef, StaticProvider, createPlatformFactory, platformCore} from '@angular/core';
-import {BrowserModule, ɵBrowserDomAdapter as BrowserDomAdapter, ɵELEMENT_PROBE_PROVIDERS as ELEMENT_PROBE_PROVIDERS} from '@angular/platform-browser';
-import {BrowserDetection, createNgZone} from './browser_util';
-
-function initBrowserTests() {
-  BrowserDomAdapter.makeCurrent();
-  BrowserDetection.setup();
-}
-
-const _TEST_BROWSER_PLATFORM_PROVIDERS: StaticProvider[] =
-    [{provide: PLATFORM_INITIALIZER, useValue: initBrowserTests, multi: true}];
+import {ɵprovideFakePlatformNavigation} from '@angular/common/testing';
+import {APP_ID, createPlatformFactory, NgModule, StaticProvider, PlatformRef} from '@angular/core';
+import {TestComponentRenderer} from '@angular/core/testing';
+// g3-only import {BrowserModule, platformBrowser} from '@angular/platform-browser';
+import {BrowserModule, platformBrowser} from '../../index'; // 3p-only
+import {DOMTestComponentRenderer} from './dom_test_component_renderer';
 
 /**
  * Platform for testing
  *
  * @publicApi
  */
-export const platformBrowserTesting =
-    createPlatformFactory(platformCore, 'browserTesting', _TEST_BROWSER_PLATFORM_PROVIDERS);
+export const platformBrowserTesting: (extraProviders?: StaticProvider[]) => PlatformRef =
+  createPlatformFactory(platformBrowser, 'browserTesting');
 
 /**
  * NgModule for testing.
@@ -34,9 +29,8 @@ export const platformBrowserTesting =
   exports: [BrowserModule],
   providers: [
     {provide: APP_ID, useValue: 'a'},
-    ELEMENT_PROBE_PROVIDERS,
-    {provide: NgZone, useFactory: createNgZone},
-  ]
+    ɵprovideFakePlatformNavigation(),
+    {provide: TestComponentRenderer, useClass: DOMTestComponentRenderer},
+  ],
 })
-export class BrowserTestingModule {
-}
+export class BrowserTestingModule {}

@@ -1,12 +1,13 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 export const $EOF = 0;
+export const $BSPACE = 8;
 export const $TAB = 9;
 export const $LF = 10;
 export const $VTAB = 11;
@@ -36,6 +37,7 @@ export const $GT = 62;
 export const $QUESTION = 63;
 
 export const $0 = 48;
+export const $7 = 55;
 export const $9 = 57;
 
 export const $A = 65;
@@ -51,6 +53,7 @@ export const $CARET = 94;
 export const $_ = 95;
 
 export const $a = 97;
+export const $b = 98;
 export const $e = 101;
 export const $f = 102;
 export const $n = 110;
@@ -73,7 +76,7 @@ export const $AT = 64;
 export const $BT = 96;
 
 export function isWhitespace(code: number): boolean {
-  return (code >= $TAB && code <= $SPACE) || (code == $NBSP);
+  return (code >= $TAB && code <= $SPACE) || code == $NBSP;
 }
 
 export function isDigit(code: number): boolean {
@@ -81,9 +84,21 @@ export function isDigit(code: number): boolean {
 }
 
 export function isAsciiLetter(code: number): boolean {
-  return code >= $a && code <= $z || code >= $A && code <= $Z;
+  return (code >= $a && code <= $z) || (code >= $A && code <= $Z);
 }
 
 export function isAsciiHexDigit(code: number): boolean {
-  return code >= $a && code <= $f || code >= $A && code <= $F || isDigit(code);
+  return (code >= $a && code <= $f) || (code >= $A && code <= $F) || isDigit(code);
+}
+
+export function isNewLine(code: number): boolean {
+  return code === $LF || code === $CR;
+}
+
+export function isOctalDigit(code: number): boolean {
+  return $0 <= code && code <= $7;
+}
+
+export function isQuote(code: number): boolean {
+  return code === $SQ || code === $DQ || code === $BT;
 }

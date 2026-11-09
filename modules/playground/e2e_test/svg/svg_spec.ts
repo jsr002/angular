@@ -1,24 +1,41 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-import {verifyNoBrowserErrors} from 'e2e_util/e2e_util';
-import {browser, by, element} from 'protractor';
+import * as webdriver from 'selenium-webdriver';
+import {
+  createWebDriver,
+  verifyNoBrowserErrors,
+  waitForAngular,
+} from '../../../../packages/examples/test-utils/index.js';
 
-describe('SVG', function() {
+describe('SVG', function () {
+  let driver: webdriver.WebDriver;
+  let baseUrl: string;
 
-  const URL = 'all/playground/src/svg/index.html';
-
-  afterEach(verifyNoBrowserErrors);
-  beforeEach(() => { browser.get(URL); });
-
-  it('should display SVG component contents', function() {
-    const svgText = element.all(by.css('g text')).get(0);
-    expect(svgText.getText()).toEqual('Hello');
+  beforeAll(async () => {
+    ({driver, baseUrl} = await createWebDriver());
   });
 
+  afterAll(async () => {
+    await driver.quit();
+  });
+
+  afterEach(async () => {
+    await verifyNoBrowserErrors(driver);
+  });
+
+  beforeEach(async () => {
+    await driver.get(`${baseUrl}/`);
+    await waitForAngular(driver);
+  });
+
+  it('should display SVG component contents', async function () {
+    const texts = await driver.findElements(webdriver.By.css('g text'));
+    expect(await texts[0].getText()).toEqual('Hello');
+  });
 });

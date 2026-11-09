@@ -1,13 +1,13 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import * as html from '../ml_parser/ast';
-import {isNgContent} from '../ml_parser/tags';
+import {isNgContent, splitNsName} from '../ml_parser/tags';
 
 const NG_CONTENT_SELECT_ATTR = 'select';
 const LINK_ELEMENT = 'link';
@@ -20,12 +20,13 @@ const NG_NON_BINDABLE_ATTR = 'ngNonBindable';
 const NG_PROJECT_AS = 'ngProjectAs';
 
 export function preparseElement(ast: html.Element): PreparsedElement {
-  let selectAttr: string = null !;
-  let hrefAttr: string = null !;
-  let relAttr: string = null !;
+  let selectAttr: string | null = null;
+  let hrefAttr: string | null = null;
+  let relAttr: string | null = null;
   let nonBindable = false;
   let projectAs = '';
-  ast.attrs.forEach(attr => {
+
+  for (const attr of ast.attrs) {
     const lcAttrName = attr.name.toLowerCase();
     if (lcAttrName == NG_CONTENT_SELECT_ATTR) {
       selectAttr = attr.value;
@@ -40,15 +41,20 @@ export function preparseElement(ast: html.Element): PreparsedElement {
         projectAs = attr.value;
       }
     }
-  });
-  selectAttr = normalizeNgContentSelect(selectAttr);
+  }
+
+  // Normalize selector to '*' if empty
+  selectAttr ||= '*';
+
   const nodeName = ast.name.toLowerCase();
+  // Custom namespaces fall back to HTML, where script elements are executable.
+  const nodeNameWithoutNamespace = splitNsName(nodeName)[1];
   let type = PreparsedElementType.OTHER;
   if (isNgContent(nodeName)) {
     type = PreparsedElementType.NG_CONTENT;
-  } else if (nodeName == STYLE_ELEMENT) {
+  } else if (STYLE_ELEMENT === nodeName) {
     type = PreparsedElementType.STYLE;
-  } else if (nodeName == SCRIPT_ELEMENT) {
+  } else if (SCRIPT_ELEMENT === nodeNameWithoutNamespace) {
     type = PreparsedElementType.SCRIPT;
   } else if (nodeName == LINK_ELEMENT && relAttr == LINK_STYLE_REL_VALUE) {
     type = PreparsedElementType.STYLESHEET;
@@ -61,19 +67,15 @@ export enum PreparsedElementType {
   STYLE,
   STYLESHEET,
   SCRIPT,
-  OTHER
+  OTHER,
 }
 
 export class PreparsedElement {
   constructor(
-      public type: PreparsedElementType, public selectAttr: string, public hrefAttr: string,
-      public nonBindable: boolean, public projectAs: string) {}
-}
-
-
-function normalizeNgContentSelect(selectAttr: string): string {
-  if (selectAttr === null || selectAttr.length === 0) {
-    return '*';
-  }
-  return selectAttr;
+    public type: PreparsedElementType,
+    public selectAttr: string,
+    public hrefAttr: string | null,
+    public nonBindable: boolean,
+    public projectAs: string,
+  ) {}
 }

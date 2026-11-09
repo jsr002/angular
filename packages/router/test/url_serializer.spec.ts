@@ -1,16 +1,25 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import {PRIMARY_OUTLET} from '../src/shared';
-import {DefaultUrlSerializer, UrlSegmentGroup, encodeUriFragment, encodeUriQuery, encodeUriSegment, serializePath} from '../src/url_tree';
+import {
+  DefaultUrlSerializer,
+  encodeUriFragment,
+  encodeUriQuery,
+  encodeUriSegment,
+  serializePath,
+  UrlSegment,
+  UrlSegmentGroup,
+} from '../src/url_tree';
 
 describe('url serializer', () => {
   const url = new DefaultUrlSerializer();
+  const protocolRelativeUrlWarning = `NG04019: Cannot serialize a UrlTree that would produce a protocol-relative URL. Falling back to '/' instead.`;
 
   it('should parse the root url', () => {
     const tree = url.parse('/');
@@ -34,6 +43,38 @@ describe('url serializer', () => {
     expect(url.serialize(tree)).toEqual('/one/two(left:three//right:four)');
   });
 
+  it('should parse secondary segments with an = in the name', () => {
+    const tree = url.parse('/path/to/some=file');
+    expect(tree.root.children['primary'].segments[2].path).toEqual('some=file');
+  });
+
+  it('should parse segments with matrix parameters when the name contains an =', () => {
+    const tree = url.parse('/path/to/some=file;test=11');
+    expect(tree.root.children['primary'].segments[2].path).toEqual('some=file');
+    expect(tree.root.children['primary'].segments[2].parameterMap.keys).toHaveSize(1);
+    expect(tree.root.children['primary'].segments[2].parameterMap.get('test')).toEqual('11');
+  });
+
+  it('should parse segments that end with an =', () => {
+    const tree = url.parse('/password/de/MDAtMNTk=');
+    expect(tree.root.children['primary'].segments[2].path).toEqual('MDAtMNTk=');
+  });
+
+  it('should parse segments that only contain an =', () => {
+    const tree = url.parse('example.com/prefix/=');
+    expect(tree.root.children['primary'].segments[2].path).toEqual('=');
+  });
+
+  it('should parse segments with matrix parameter values containing an =', () => {
+    const tree = url.parse('/path/to/something;query=file=test;query2=test2');
+    expect(tree.root.children['primary'].segments[2].path).toEqual('something');
+    expect(tree.root.children['primary'].segments[2].parameterMap.keys).toHaveSize(2);
+    expect(tree.root.children['primary'].segments[2].parameterMap.get('query')).toEqual(
+      'file=test',
+    );
+    expect(tree.root.children['primary'].segments[2].parameterMap.get('query2')).toEqual('test2');
+  });
+
   it('should parse top-level nodes with only secondary segment', () => {
     const tree = url.parse('/(left:one)');
 
@@ -55,8 +96,9 @@ describe('url serializer', () => {
   });
 
   it('should not parse empty path segments with params', () => {
-    expect(() => url.parse('/one/two/(;a=1//right:;b=2)'))
-        .toThrowError(/Empty path url segment cannot have parameters/);
+    expect(() => url.parse('/one/two/(;a=1//right:;b=2)')).toThrowError(
+      /Empty path url segment cannot have parameters/,
+    );
   });
 
   it('should parse scoped secondary segments', () => {
@@ -90,6 +132,17 @@ describe('url serializer', () => {
     expectSegment(tree.root.children['left'], 'two/three');
 
     expect(url.serialize(tree)).toEqual('/one(left:two/three)');
+  });
+
+  it('should parse a secondary segment named "__proto__"', () => {
+    const tree = url.parse('/one(__proto__:two)');
+
+    expectSegment(tree.root.children[PRIMARY_OUTLET], 'one');
+    expectSegment(tree.root.children['__proto__'], 'two');
+    expect(tree.root.numberOfChildren).toEqual(2);
+    expect(Object.getPrototypeOf(tree.root.children)).toBeNull();
+
+    expect(url.serialize(tree)).toEqual('/one(__proto__:two)');
   });
 
   it('should parse an empty secondary segment group', () => {
@@ -186,21 +239,31 @@ describe('url serializer', () => {
     expect(url.serialize(tree)).toEqual('/one#');
   });
 
+  it('should parse no fragment', () => {
+    const tree = url.parse('/one');
+    expect(tree.fragment).toEqual(null);
+    expect(url.serialize(tree)).toEqual('/one');
+  });
+
   describe('encoding/decoding', () => {
     it('should encode/decode path segments and parameters', () => {
-      const u =
-          `/${encodeUriSegment("one two")};${encodeUriSegment("p 1")}=${encodeUriSegment("v 1")};${encodeUriSegment("p 2")}=${encodeUriSegment("v 2")}`;
+      const u = `/${encodeUriSegment('one two')};${encodeUriSegment('p 1')}=${encodeUriSegment(
+        'v 1',
+      )};${encodeUriSegment('p 2')}=${encodeUriSegment('v 2')}`;
       const tree = url.parse(u);
 
       expect(tree.root.children[PRIMARY_OUTLET].segments[0].path).toEqual('one two');
-      expect(tree.root.children[PRIMARY_OUTLET].segments[0].parameters)
-          .toEqual({['p 1']: 'v 1', ['p 2']: 'v 2'});
+      expect(tree.root.children[PRIMARY_OUTLET].segments[0].parameters).toEqual({
+        ['p 1']: 'v 1',
+        ['p 2']: 'v 2',
+      });
       expect(url.serialize(tree)).toEqual(u);
     });
 
     it('should encode/decode "slash" in path segments and parameters', () => {
-      const u =
-          `/${encodeUriSegment("one/two")};${encodeUriSegment("p/1")}=${encodeUriSegment("v/1")}/three`;
+      const u = `/${encodeUriSegment('one/two')};${encodeUriSegment('p/1')}=${encodeUriSegment(
+        'v/1',
+      )}/three`;
       const tree = url.parse(u);
       const segment = tree.root.children[PRIMARY_OUTLET].segments[0];
       expect(segment.path).toEqual('one/two');
@@ -211,8 +274,9 @@ describe('url serializer', () => {
     });
 
     it('should encode/decode query params', () => {
-      const u =
-          `/one?${encodeUriQuery("p 1")}=${encodeUriQuery("v 1")}&${encodeUriQuery("p 2")}=${encodeUriQuery("v 2")}`;
+      const u = `/one?${encodeUriQuery('p 1')}=${encodeUriQuery('v 1')}&${encodeUriQuery(
+        'p 2',
+      )}=${encodeUriQuery('v 2')}`;
       const tree = url.parse(u);
 
       expect(tree.queryParams).toEqual({'p 1': 'v 1', 'p 2': 'v 2'});
@@ -240,7 +304,7 @@ describe('url serializer', () => {
     it('should encode query params leaving sub-delimiters intact', () => {
       const percentChars = '/?#&+=[] ';
       const percentCharsEncoded = '%2F%3F%23%26%2B%3D%5B%5D%20';
-      const intactChars = '!$\'()*,;:';
+      const intactChars = "!$'()*,;:";
       const params = percentChars + intactChars;
       const paramsEncoded = percentCharsEncoded + intactChars;
       const mixedCaseString = 'sTrInG';
@@ -263,7 +327,6 @@ describe('url serializer', () => {
   });
 
   describe('special character encoding/decoding', () => {
-
     // Tests specific to https://github.com/angular/angular/issues/10280
     it('should parse encoded parens in matrix params', () => {
       const auxRoutesUrl = '/abc;foo=(other:val)';
@@ -271,7 +334,6 @@ describe('url serializer', () => {
 
       const auxParsed = url.parse(auxRoutesUrl).root;
       const fooParsed = url.parse(fooValueUrl).root;
-
 
       // Test base case
       expect(auxParsed.children[PRIMARY_OUTLET].segments.length).toBe(1);
@@ -284,7 +346,7 @@ describe('url serializer', () => {
       expect(fooParsed.children[PRIMARY_OUTLET].segments.length).toBe(1);
       expect(fooParsed.children[PRIMARY_OUTLET].segments[0].path).toBe('abc');
       expect(fooParsed.children[PRIMARY_OUTLET].segments[0].parameters).toEqual({
-        foo: '(other:val)'
+        foo: '(other:val)',
       });
     });
 
@@ -308,7 +370,7 @@ describe('url serializer', () => {
 
     // Test special characters in general
 
-    // From http://www.ietf.org/rfc/rfc3986.txt
+    // From https://tools.ietf.org/html/rfc3986
     const unreserved = `abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~`;
 
     it('should encode a minimal set of special characters in queryParams', () => {
@@ -335,18 +397,17 @@ describe('url serializer', () => {
       expect(url.serialize(parsed)).toBe(`/foo#${notEncoded}${encoded}`);
     });
 
-    it('should encode minimal special characters plus parens and semi-colon in matrix params',
-       () => {
-         const notEncoded = unreserved + `:@!$'*,&`;
-         const encode = ` /%=#()[];?+`;
-         const encoded = `%20%2F%25%3D%23%28%29%5B%5D%3B%3F%2B`;
+    it('should encode minimal special characters plus parens and semi-colon in matrix params', () => {
+      const notEncoded = unreserved + `:@!$'*,&`;
+      const encode = ` /%=#()[];?+`;
+      const encoded = `%20%2F%25%3D%23%28%29%5B%5D%3B%3F%2B`;
 
-         const parsed = url.parse('/foo');
+      const parsed = url.parse('/foo');
 
-         parsed.root.children[PRIMARY_OUTLET].segments[0].parameters = {notEncoded, encode};
+      parsed.root.children[PRIMARY_OUTLET].segments[0].parameters = {notEncoded, encode};
 
-         expect(url.serialize(parsed)).toBe(`/foo;notEncoded=${notEncoded};encode=${encoded}`);
-       });
+      expect(url.serialize(parsed)).toBe(`/foo;notEncoded=${notEncoded};encode=${encoded}`);
+    });
 
     it('should encode special characters in the path the same as matrix params', () => {
       const notEncoded = unreserved + `:@!$'*,&`;
@@ -369,24 +430,214 @@ describe('url serializer', () => {
     });
   });
 
+  describe('multiple leading slashes', () => {
+    // Regression test: https://github.com/angular/angular/issues/66233
+    // `///path` was parsed into an empty UrlSegment followed by `path`, which the serializer
+    // rendered as `//path` — a protocol-relative URL that browsers reject with a SecurityError
+    // when passed to history.pushState/replaceState.
+    it('should normalize multiple leading slashes when parsing', () => {
+      expect(url.serialize(url.parse('///test'))).toEqual('/test');
+    });
+
+    it('should normalize any number of leading slashes when parsing', () => {
+      expect(url.serialize(url.parse('////test'))).toEqual('/test');
+      expect(url.serialize(url.parse('/////test'))).toEqual('/test');
+    });
+
+    it('should preserve query params and fragments after normalizing leading slashes', () => {
+      expect(url.serialize(url.parse('///test?foo=bar#frag'))).toEqual('/test?foo=bar#frag');
+    });
+  });
+
+  describe('leading empty path segments', () => {
+    it('should fall back for a parsed primary outlet that would serialize as protocol-relative', () => {
+      const warn = spyOn(console, 'warn');
+      const tree = url.parse('/(primary://attacker.example/collect)?token=RESET_TOKEN');
+
+      expect(url.serialize(tree)).toBe('/?token=RESET_TOKEN');
+      expect(warn).toHaveBeenCalledOnceWith(protocolRelativeUrlWarning);
+    });
+
+    it('should fall back for multiple leading empty primary segments', () => {
+      const warn = spyOn(console, 'warn');
+      const tree = url.parse('/attacker.example/collect');
+      tree.root.children[PRIMARY_OUTLET].segments.unshift(
+        new UrlSegment('', {}),
+        new UrlSegment('', {}),
+      );
+
+      expect(url.serialize(tree)).toBe('/');
+      expect(warn).toHaveBeenCalledOnceWith(protocolRelativeUrlWarning);
+    });
+
+    it('should fall back for unsafe trees with secondary outlets, query params, and fragments', () => {
+      const warn = spyOn(console, 'warn');
+      const tree = url.parse(
+        '/attacker.example/collect(popup:compose)?token=RESET_TOKEN#OAUTH_TOKEN',
+      );
+      tree.root.children[PRIMARY_OUTLET].segments.unshift(new UrlSegment('', {}));
+
+      expect(url.serialize(tree)).toBe('/?token=RESET_TOKEN#OAUTH_TOKEN');
+      expect(warn).toHaveBeenCalledOnceWith(protocolRelativeUrlWarning);
+    });
+
+    it('should fall back for a parsed path with dot and leading empty segment that would normalize to protocol-relative', () => {
+      const warn = spyOn(console, 'warn');
+      const tree = url.parse('/.;/(//evil.test)');
+
+      expect(url.serialize(tree)).toBe('/');
+      expect(warn).toHaveBeenCalledOnceWith(protocolRelativeUrlWarning);
+    });
+
+    it('should fall back for dot segments collapsing to protocol-relative path', () => {
+      const warn = spyOn(console, 'warn');
+      const tree = url.parse('/attacker.example/collect');
+      tree.root.children[PRIMARY_OUTLET].segments.unshift(
+        new UrlSegment('.', {}),
+        new UrlSegment('', {}),
+      );
+
+      expect(url.serialize(tree)).toBe('/');
+      expect(warn).toHaveBeenCalledOnceWith(protocolRelativeUrlWarning);
+    });
+
+    it('should fall back for double dot segments collapsing to protocol-relative path', () => {
+      const warn = spyOn(console, 'warn');
+      const tree = url.parse('/attacker.example/collect');
+      tree.root.children[PRIMARY_OUTLET].segments.unshift(
+        new UrlSegment('..', {}),
+        new UrlSegment('', {}),
+      );
+
+      expect(url.serialize(tree)).toBe('/');
+      expect(warn).toHaveBeenCalledOnceWith(protocolRelativeUrlWarning);
+    });
+  });
+
   describe('error handling', () => {
     it('should throw when invalid characters inside children', () => {
-      expect(() => url.parse('/one/(left#one)'))
-          .toThrowError('Cannot parse url \'/one/(left#one)\'');
+      expect(() => url.parse('/one/(left#one)')).toThrowError();
     });
 
     it('should throw when missing closing )', () => {
-      expect(() => url.parse('/one/(left')).toThrowError('Cannot parse url \'/one/(left\'');
+      expect(() => url.parse('/one/(left')).toThrowError();
+    });
+
+    it('should throw when the URL is too deeply nested', () => {
+      let urlStr = 'a';
+      for (let i = 0; i < 60; i++) {
+        urlStr = `p/(${urlStr})`;
+      }
+      expect(() => url.parse(`/${urlStr}`)).toThrowError(/URL is too deep/);
+    });
+
+    it('should not throw when the URL is nested within the limit', () => {
+      let urlStr = 'a';
+      for (let i = 0; i < 40; i++) {
+        urlStr = `p/(${urlStr})`;
+      }
+      expect(() => url.parse(`/${urlStr}`)).not.toThrow();
+    });
+  });
+
+  describe('numeric parameter and outlet names', () => {
+    it('should round-trip numeric names without adding the internal sentinel', () => {
+      const tree = url.parse('/one;7=a;32=b;032=c;1e3=d(32:two)');
+
+      expect(tree.root.children[PRIMARY_OUTLET].segments[0].parameters).toEqual({
+        '7': 'a',
+        '32': 'b',
+        '032': 'c',
+        '1e3': 'd',
+      });
+      expectSegment(tree.root.children['32'], 'two');
+      expect(url.serialize(tree)).toEqual('/one;7=a;32=b;032=c;1e3=d(32:two)');
+    });
+
+    it('should preserve names that match the internal sentinel', () => {
+      // 1073741824 is the helper's sentinel.
+      const tree = url.parse('/one;1073741824=keep;32=other(1073741824:two//32:three)');
+
+      expect(tree.root.children[PRIMARY_OUTLET].segments[0].parameters).toEqual({
+        '1073741824': 'keep',
+        '32': 'other',
+      });
+      expectSegment(tree.root.children['1073741824'], 'two');
+      expectSegment(tree.root.children['32'], 'three');
+      expect(url.serialize(tree)).toEqual(
+        '/one;32=other;1073741824=keep(32:three//1073741824:two)',
+      );
+    });
+  });
+
+  describe('colon in non-root primary segment with sibling named outlet', () => {
+    it('should preserve encoded colon on round-trip when a primary child segment has a sibling named outlet', () => {
+      // 1. Parse URL with percent-encoded colon (%3A) in the primary segment of a parenthesized group
+      const initialTree = url.parse('/x/(admin%3Ay//aux:z)');
+      const parentGroup = initialTree.root.children[PRIMARY_OUTLET];
+
+      expect(parentGroup.segments.map((s) => s.path)).toEqual(['x']);
+      expect(parentGroup.children[PRIMARY_OUTLET]).toBeDefined();
+      expect(parentGroup.children[PRIMARY_OUTLET].segments.map((s) => s.path)).toEqual(['admin:y']);
+      expect(parentGroup.children['admin']).toBeUndefined();
+      expect(parentGroup.children['aux'].segments.map((s) => s.path)).toEqual(['z']);
+
+      // 2. Serialize back to a URL string: the first segment of the unprefixed primary child
+      // inside parentheses keeps its colon percent-encoded so it is not confused with an outlet prefix
+      const serialized = url.serialize(initialTree);
+      expect(serialized).toBe('/x/(admin%3Ay//aux:z)');
+
+      // 3. Re-parse the serialized URL
+      const reparsedTree = url.parse(serialized);
+      const reparsedParentGroup = reparsedTree.root.children[PRIMARY_OUTLET];
+
+      expect(reparsedParentGroup.children[PRIMARY_OUTLET]).toBeDefined();
+      expect(reparsedParentGroup.children[PRIMARY_OUTLET].segments.map((s) => s.path)).toEqual([
+        'admin:y',
+      ]);
+      expect(reparsedParentGroup.children['admin']).toBeUndefined();
+      expect(reparsedParentGroup.children['aux'].segments.map((s) => s.path)).toEqual(['z']);
+    });
+
+    it('should not encode colons in unambiguous path segments, matrix params, or named outlets', () => {
+      const simpleTree = url.parse('/users/id:123/time:12:30');
+      expect(url.serialize(simpleTree)).toBe('/users/id:123/time:12:30');
+
+      const matrixTree = url.parse('/search;filter:key=type:book');
+      expect(url.serialize(matrixTree)).toBe('/search;filter:key=type:book');
+      expect(matrixTree.root.children[PRIMARY_OUTLET].segments[0].parameters).toEqual({
+        'filter:key': 'type:book',
+      });
+
+      const rootWithAuxTree = url.parse('/admin:y(aux:z:1)');
+      expect(url.serialize(rootWithAuxTree)).toBe('/admin:y(aux:z:1)');
+      expect(rootWithAuxTree.root.children[PRIMARY_OUTLET].segments.map((s) => s.path)).toEqual([
+        'admin:y',
+      ]);
+      expect(rootWithAuxTree.root.children['aux'].segments.map((s) => s.path)).toEqual(['z:1']);
+
+      const scopedTree = url.parse('/x:0/(first/admin:y;k=v:2//aux:z:3)');
+      expect(url.serialize(scopedTree)).toBe('/x:0/(first/admin:y;k=v:2//aux:z:3)');
+      const scopedParent = scopedTree.root.children[PRIMARY_OUTLET];
+      expect(scopedParent.children[PRIMARY_OUTLET].segments.map((s) => s.path)).toEqual([
+        'first',
+        'admin:y',
+      ]);
+      expect(scopedParent.children[PRIMARY_OUTLET].segments[1].parameters).toEqual({k: 'v:2'});
+      expect(scopedParent.children['aux'].segments.map((s) => s.path)).toEqual(['z:3']);
     });
   });
 });
 
 function expectSegment(
-    segment: UrlSegmentGroup, expected: string, hasChildren: boolean = false): void {
-  if (segment.segments.filter(s => s.path === '').length > 0) {
+  segment: UrlSegmentGroup,
+  expected: string,
+  hasChildren: boolean = false,
+): void {
+  if (segment.segments.filter((s) => s.path === '').length > 0) {
     throw new Error(`UrlSegments cannot be empty ${segment.segments}`);
   }
-  const p = segment.segments.map(p => serializePath(p)).join('/');
+  const p = segment.segments.map((p) => serializePath(p)).join('/');
   expect(p).toEqual(expected);
   expect(Object.keys(segment.children).length > 0).toEqual(hasChildren);
 }

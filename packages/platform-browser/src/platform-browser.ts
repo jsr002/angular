@@ -1,21 +1,47 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-export {BrowserModule, platformBrowser} from './browser';
+export {
+  bootstrapApplication,
+  BootstrapContext,
+  BrowserModule,
+  createApplication,
+  platformBrowser,
+  provideProtractorTestingSupport,
+} from './browser';
 export {Meta, MetaDefinition} from './browser/meta';
 export {Title} from './browser/title';
 export {disableDebugTools, enableDebugTools} from './browser/tools/tools';
-export {BrowserTransferStateModule, StateKey, TransferState, makeStateKey} from './browser/transfer_state';
 export {By} from './dom/debug/by';
-export {DOCUMENT} from './dom/dom_tokens';
+export {provideCssVarNamespacing, REMOVE_STYLES_ON_COMPONENT_DESTROY} from './dom/dom_renderer';
+export {CssVarNamespacer} from './dom/css_var_namespacer';
 export {EVENT_MANAGER_PLUGINS, EventManager} from './dom/events/event_manager';
-export {HAMMER_GESTURE_CONFIG, HAMMER_LOADER, HammerGestureConfig, HammerLoader} from './dom/events/hammer_gestures';
-export {DomSanitizer, SafeHtml, SafeResourceUrl, SafeScript, SafeStyle, SafeUrl, SafeValue} from './security/dom_sanitization_service';
+export {EventManagerPlugin} from './dom/events/event_manager_plugin';
+export {
+  HydrationFeature,
+  HydrationFeatureKind,
+  provideClientHydration,
+  withEventReplay,
+  withHttpTransferCacheOptions,
+  withI18nSupport,
+  withIncrementalHydration,
+  withNoIncrementalHydration,
+  withNoHttpTransferCache,
+} from './hydration';
+export {
+  DomSanitizer,
+  SafeHtml,
+  SafeResourceUrl,
+  SafeScript,
+  SafeStyle,
+  SafeUrl,
+  SafeValue,
+} from './security/dom_sanitization_service';
 
 export * from './private_export';
 export {VERSION} from './version';

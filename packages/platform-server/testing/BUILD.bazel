@@ -1,17 +1,24 @@
+load("//tools:defaults.bzl", "ng_project")
+
 package(default_visibility = ["//visibility:public"])
 
 exports_files(["package.json"])
 
-load("//tools:defaults.bzl", "ng_module")
-
-ng_module(
+ng_project(
     name = "testing",
     srcs = glob(["**/*.ts"]),
-    module_name = "@angular/platform-server/testing",
     deps = [
         "//packages/core",
+        "//packages/platform-browser-dynamic",
         "//packages/platform-browser-dynamic/testing",
-        "//packages/platform-browser/animations",
         "//packages/platform-server",
     ],
+)
+
+filegroup(
+    name = "files_for_docgen",
+    srcs = glob([
+        "*.ts",
+        "src/**/*.ts",
+    ]) + ["PACKAGE.md"],
 )

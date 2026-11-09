@@ -1,164 +1,88 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-import {Position, isSyntaxError, syntaxError} from '@angular/compiler';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as ts from 'typescript';
+import ts from 'typescript';
 
+import {
+  absoluteFrom,
+  AbsoluteFsPath,
+  createFileSystemTsReadDirectoryFn,
+  FileSystem,
+  getFileSystem,
+  ReadonlyFileSystem,
+} from '../src/ngtsc/file_system';
+
+import {NgCompilerOptions} from './ngtsc/core/api';
+import {replaceTsWithNgInErrors} from './ngtsc/diagnostics';
 import * as api from './transformers/api';
 import * as ng from './transformers/entry_points';
 import {createMessageDiagnostic} from './transformers/util';
 
-const TS_EXT = /\.ts$/;
-
-export type Diagnostics = ReadonlyArray<ts.Diagnostic|api.Diagnostic>;
-
-export function filterErrorsAndWarnings(diagnostics: Diagnostics): Diagnostics {
-  return diagnostics.filter(d => d.category !== ts.DiagnosticCategory.Message);
-}
-
 const defaultFormatHost: ts.FormatDiagnosticsHost = {
   getCurrentDirectory: () => ts.sys.getCurrentDirectory(),
-  getCanonicalFileName: fileName => fileName,
-  getNewLine: () => ts.sys.newLine
+  getCanonicalFileName: (fileName) => fileName,
+  getNewLine: () => ts.sys.newLine,
 };
 
-function displayFileName(fileName: string, host: ts.FormatDiagnosticsHost): string {
-  return path.relative(host.getCurrentDirectory(), host.getCanonicalFileName(fileName));
-}
-
-export function formatDiagnosticPosition(
-    position: Position, host: ts.FormatDiagnosticsHost = defaultFormatHost): string {
-  return `${displayFileName(position.fileName, host)}(${position.line + 1},${position.column+1})`;
-}
-
-export function flattenDiagnosticMessageChain(
-    chain: api.DiagnosticMessageChain, host: ts.FormatDiagnosticsHost = defaultFormatHost): string {
-  let result = chain.messageText;
-  let indent = 1;
-  let current = chain.next;
-  const newLine = host.getNewLine();
-  while (current) {
-    result += newLine;
-    for (let i = 0; i < indent; i++) {
-      result += '  ';
-    }
-    result += current.messageText;
-    const position = current.position;
-    if (position) {
-      result += ` at ${formatDiagnosticPosition(position, host)}`;
-    }
-    current = current.next;
-    indent++;
-  }
-  return result;
-}
-
-export function formatDiagnostic(
-    diagnostic: api.Diagnostic, host: ts.FormatDiagnosticsHost = defaultFormatHost) {
-  let result = '';
-  const newLine = host.getNewLine();
-  const span = diagnostic.span;
-  if (span) {
-    result += `${formatDiagnosticPosition({
-      fileName: span.start.file.url,
-      line: span.start.line,
-      column: span.start.col
-    }, host)}: `;
-  } else if (diagnostic.position) {
-    result += `${formatDiagnosticPosition(diagnostic.position, host)}: `;
-  }
-  if (diagnostic.span && diagnostic.span.details) {
-    result += `: ${diagnostic.span.details}, ${diagnostic.messageText}${newLine}`;
-  } else if (diagnostic.chain) {
-    result += `${flattenDiagnosticMessageChain(diagnostic.chain, host)}.${newLine}`;
-  } else {
-    result += `: ${diagnostic.messageText}${newLine}`;
-  }
-  return result;
-}
-
 export function formatDiagnostics(
-    diags: Diagnostics, host: ts.FormatDiagnosticsHost = defaultFormatHost): string {
+  diags: ReadonlyArray<ts.Diagnostic>,
+  host: ts.FormatDiagnosticsHost = defaultFormatHost,
+): string {
   if (diags && diags.length) {
     return diags
-        .map(diagnostic => {
-          if (api.isTsDiagnostic(diagnostic)) {
-            return ts.formatDiagnostics([diagnostic], host);
-          } else {
-            return formatDiagnostic(diagnostic, host);
-          }
-        })
-        .join('');
+      .map((diagnostic) =>
+        replaceTsWithNgInErrors(ts.formatDiagnosticsWithColorAndContext([diagnostic], host)),
+      )
+      .join('');
   } else {
     return '';
   }
 }
 
+/** Used to read configuration files. */
+export type ConfigurationHost = Pick<
+  ReadonlyFileSystem,
+  'readFile' | 'exists' | 'lstat' | 'resolve' | 'join' | 'dirname' | 'extname' | 'pwd' | 'readdir'
+>;
+
 export interface ParsedConfiguration {
   project: string;
   options: api.CompilerOptions;
   rootNames: string[];
+  projectReferences?: readonly ts.ProjectReference[] | undefined;
   emitFlags: api.EmitFlags;
-  errors: Diagnostics;
+  errors: ts.Diagnostic[];
 }
 
-export function calcProjectFileAndBasePath(project: string):
-    {projectFile: string, basePath: string} {
-  const projectIsDir = fs.lstatSync(project).isDirectory();
-  const projectFile = projectIsDir ? path.join(project, 'tsconfig.json') : project;
-  const projectDir = projectIsDir ? project : path.dirname(project);
-  const basePath = path.resolve(process.cwd(), projectDir);
+export function calcProjectFileAndBasePath(
+  project: string,
+  host: ConfigurationHost = getFileSystem(),
+): {projectFile: AbsoluteFsPath; basePath: AbsoluteFsPath} {
+  const absProject = host.resolve(project);
+  const projectIsDir = host.lstat(absProject).isDirectory();
+  const projectFile = projectIsDir ? host.join(absProject, 'tsconfig.json') : absProject;
+  const projectDir = projectIsDir ? absProject : host.dirname(absProject);
+  const basePath = host.resolve(projectDir);
+
   return {projectFile, basePath};
 }
 
-export function createNgCompilerOptions(
-    basePath: string, config: any, tsOptions: ts.CompilerOptions): api.CompilerOptions {
-  return {...tsOptions, ...config.angularCompilerOptions, genDir: basePath, basePath};
-}
-
 export function readConfiguration(
-    project: string, existingOptions?: ts.CompilerOptions): ParsedConfiguration {
+  project: string,
+  existingOptions?: api.CompilerOptions,
+  host: ConfigurationHost = getFileSystem(),
+  extendedConfigCache = new Map<string, ts.ExtendedConfigCacheEntry>(),
+): ParsedConfiguration {
   try {
-    const {projectFile, basePath} = calcProjectFileAndBasePath(project);
-
-    const readExtendedConfigFile =
-        (configFile: string, existingConfig?: any): {config?: any, error?: ts.Diagnostic} => {
-          const {config, error} = ts.readConfigFile(configFile, ts.sys.readFile);
-
-          if (error) {
-            return {error};
-          }
-
-          // we are only interested into merging 'angularCompilerOptions' as
-          // other options like 'compilerOptions' are merged by TS
-          const baseConfig = existingConfig || config;
-          if (existingConfig) {
-            baseConfig.angularCompilerOptions = {...config.angularCompilerOptions,
-                                                 ...baseConfig.angularCompilerOptions};
-          }
-
-          if (config.extends) {
-            let extendedConfigPath = path.resolve(path.dirname(configFile), config.extends);
-            extendedConfigPath = path.extname(extendedConfigPath) ? extendedConfigPath :
-                                                                    `${extendedConfigPath}.json`;
-
-            if (fs.existsSync(extendedConfigPath)) {
-              // Call read config recursively as TypeScript only merges CompilerOptions
-              return readExtendedConfigFile(extendedConfigPath, baseConfig);
-            }
-          }
-
-          return {config: baseConfig};
-        };
-
-    const {config, error} = readExtendedConfigFile(projectFile);
+    const fs = getFileSystem();
+    const {projectFile, basePath} = calcProjectFileAndBasePath(project, host);
+    const parseConfigHost = createParseConfigHost(host, fs);
+    const {config, error} = readConfigFile(projectFile, host, fs, extendedConfigCache);
 
     if (error) {
       return {
@@ -166,116 +90,309 @@ export function readConfiguration(
         errors: [error],
         rootNames: [],
         options: {},
-        emitFlags: api.EmitFlags.Default
+        emitFlags: api.EmitFlags.Default,
       };
     }
-    const parseConfigHost = {
-      useCaseSensitiveFileNames: true,
-      fileExists: fs.existsSync,
-      readDirectory: ts.sys.readDirectory,
-      readFile: ts.sys.readFile
-    };
-    const parsed =
-        ts.parseJsonConfigFileContent(config, parseConfigHost, basePath, existingOptions);
-    const rootNames = parsed.fileNames.map(f => path.normalize(f));
 
-    const options = createNgCompilerOptions(basePath, config, parsed.options);
+    const existingCompilerOptions: api.CompilerOptions = {
+      genDir: basePath,
+      basePath,
+      ...existingOptions,
+    };
+
+    const {
+      options,
+      errors,
+      fileNames: rootNames,
+      projectReferences,
+    } = ts.parseJsonConfigFileContent(
+      /* json */ config,
+      /* host */ parseConfigHost,
+      /* basePath */ basePath,
+      /* existingOptions */ existingCompilerOptions,
+      /* configFileName */ projectFile,
+      /* resolutionStack */ undefined,
+      /* extraFileExtensions */ undefined,
+      /* extendedConfigCache */ extendedConfigCache,
+    );
+
+    const angularCompilerOptions = readAngularCompilerOptions(
+      projectFile,
+      config,
+      host,
+      fs,
+      parseConfigHost,
+      extendedConfigCache,
+    );
+
+    Object.assign(options, angularCompilerOptions, existingOptions);
+
     let emitFlags = api.EmitFlags.Default;
-    if (!(options.skipMetadataEmit || options.flatModuleOutFile)) {
+    if (!options['skipMetadataEmit'] && !options['flatModuleOutFile']) {
       emitFlags |= api.EmitFlags.Metadata;
     }
-    if (options.skipTemplateCodegen) {
+
+    if (options['skipTemplateCodegen']) {
       emitFlags = emitFlags & ~api.EmitFlags.Codegen;
     }
-    return {project: projectFile, rootNames, options, errors: parsed.errors, emitFlags};
+
+    return {project: projectFile, rootNames, projectReferences, options, errors, emitFlags};
   } catch (e) {
-    const errors: Diagnostics = [{
-      category: ts.DiagnosticCategory.Error,
-      messageText: e.stack,
-      source: api.SOURCE,
-      code: api.UNKNOWN_ERROR_CODE
-    }];
+    const errors: ts.Diagnostic[] = [
+      {
+        category: ts.DiagnosticCategory.Error,
+        messageText: (e as Error).stack ?? (e as Error).message,
+        file: undefined,
+        start: undefined,
+        length: undefined,
+        source: 'angular',
+        code: api.UNKNOWN_ERROR_CODE,
+      },
+    ];
     return {project: '', errors, rootNames: [], options: {}, emitFlags: api.EmitFlags.Default};
   }
 }
 
+function readConfigFile(
+  configFile: string,
+  host: ConfigurationHost,
+  fs: FileSystem,
+  extendedConfigCache?: Map<string, ts.ExtendedConfigCacheEntry>,
+): {config?: any; error?: ts.Diagnostic} {
+  const cacheKey = fs.isCaseSensitive() ? configFile : configFile.toLowerCase();
+  const cacheEntry = extendedConfigCache?.get(cacheKey);
+
+  if (cacheEntry) {
+    return {
+      config: cacheEntry.extendedConfig?.raw,
+      error: (cacheEntry.extendedResult as {parseDiagnostics?: ts.Diagnostic[]})
+        .parseDiagnostics?.[0],
+    };
+  }
+
+  return ts.readConfigFile(configFile, (file) => host.readFile(host.resolve(file)));
+}
+
+function readAngularCompilerOptions(
+  configFile: string,
+  config: any,
+  host: ConfigurationHost,
+  fs: FileSystem,
+  parseConfigHost: ts.ParseConfigHost,
+  extendedConfigCache: Map<string, ts.ExtendedConfigCacheEntry>,
+): NgCompilerOptions {
+  const cacheKey = fs.isCaseSensitive() ? configFile : configFile.toLowerCase();
+  const cacheEntry = extendedConfigCache.get(cacheKey);
+  const cachedExtendedConfig = cacheEntry?.extendedConfig as
+    | (ts.ExtendedConfigCacheEntry['extendedConfig'] & {
+        angularCompilerOptions?: NgCompilerOptions;
+      })
+    | undefined;
+
+  // If the merged angularCompilerOptions for this config are already cached, reuse them.
+  if (cachedExtendedConfig?.angularCompilerOptions) {
+    return cachedExtendedConfig.angularCompilerOptions;
+  }
+
+  // Note: In Google, `angularCompilerOptions` are stored in `bazelOptions`.
+  // This function typically doesn't run for actual Angular compilations, but
+  // tooling like Tsurge, or schematics may leverage this helper, so we account
+  // for this here.
+  const angularCompilerOptions =
+    config.angularCompilerOptions ?? config.bazelOptions?.angularCompilerOptions ?? {};
+
+  if (!config.extends) {
+    if (cachedExtendedConfig) {
+      cachedExtendedConfig.angularCompilerOptions = angularCompilerOptions;
+    }
+    return angularCompilerOptions;
+  }
+
+  const resolvedExtendedConfigPath = cachedExtendedConfig?.extendedConfigPath;
+
+  const extendsPaths: string[] = resolvedExtendedConfigPath
+    ? typeof resolvedExtendedConfigPath === 'string'
+      ? [resolvedExtendedConfigPath]
+      : resolvedExtendedConfigPath
+    : typeof config.extends === 'string'
+      ? [config.extends]
+      : Array.isArray(config.extends)
+        ? config.extends
+        : [];
+
+  // Recursively merge extended configurations from base to leaf (left-to-right).
+  const inheritedOptions = extendsPaths.reduce((prevOptions, extendsPath) => {
+    const extendedConfigPath = resolvedExtendedConfigPath
+      ? absoluteFrom(extendsPath)
+      : getExtendedConfigPath(configFile, extendsPath, host, fs, parseConfigHost);
+    if (extendedConfigPath === null) {
+      return prevOptions;
+    }
+
+    const {config: extendedConfig, error} = readConfigFile(
+      extendedConfigPath,
+      host,
+      fs,
+      extendedConfigCache,
+    );
+
+    if (error || !extendedConfig) {
+      return prevOptions;
+    }
+
+    const options = readAngularCompilerOptions(
+      extendedConfigPath,
+      extendedConfig,
+      host,
+      fs,
+      parseConfigHost,
+      extendedConfigCache,
+    );
+
+    return {...prevOptions, ...options};
+  }, {} as NgCompilerOptions);
+
+  const mergedOptions = {...inheritedOptions, ...angularCompilerOptions};
+  if (cachedExtendedConfig) {
+    cachedExtendedConfig.angularCompilerOptions = mergedOptions;
+  }
+
+  return mergedOptions;
+}
+
+function createParseConfigHost(host: ConfigurationHost, fs = getFileSystem()): ts.ParseConfigHost {
+  return {
+    fileExists: host.exists.bind(host),
+    readDirectory: createFileSystemTsReadDirectoryFn(fs),
+    readFile: host.readFile.bind(host),
+    useCaseSensitiveFileNames: fs.isCaseSensitive(),
+  };
+}
+
+function getExtendedConfigPath(
+  configFile: string,
+  extendsValue: string,
+  host: ConfigurationHost,
+  fs: FileSystem,
+  parseConfigHost: ts.ParseConfigHost,
+): AbsoluteFsPath | null {
+  for (const candidate of [extendsValue, `${extendsValue}.json`]) {
+    if (candidate[0] === '.' || fs.isRooted(candidate)) {
+      const extendedConfigPath = host.resolve(host.dirname(configFile), candidate);
+      if (host.exists(extendedConfigPath)) {
+        return extendedConfigPath;
+      }
+    } else {
+      // Path isn't a rooted or relative path, resolve like a module.
+      const {resolvedModule} = ts.nodeModuleNameResolver(
+        candidate,
+        configFile,
+        {moduleResolution: ts.ModuleResolutionKind.NodeNext, resolveJsonModule: true},
+        parseConfigHost,
+      );
+      if (resolvedModule) {
+        return absoluteFrom(resolvedModule.resolvedFileName);
+      }
+    }
+  }
+
+  return null;
+}
+
 export interface PerformCompilationResult {
-  diagnostics: Diagnostics;
+  diagnostics: ReadonlyArray<ts.Diagnostic>;
   program?: api.Program;
   emitResult?: ts.EmitResult;
 }
 
-export function exitCodeFromResult(diags: Diagnostics | undefined): number {
-  if (!diags || filterErrorsAndWarnings(diags).length === 0) {
+export function exitCodeFromResult(diags: ReadonlyArray<ts.Diagnostic> | undefined): number {
+  if (!diags) return 0;
+  if (diags.every((diag) => diag.category !== ts.DiagnosticCategory.Error)) {
     // If we have a result and didn't get any errors, we succeeded.
     return 0;
   }
 
   // Return 2 if any of the errors were unknown.
-  return diags.some(d => d.source === 'angular' && d.code === api.UNKNOWN_ERROR_CODE) ? 2 : 1;
+  return diags.some((d) => d.source === 'angular' && d.code === api.UNKNOWN_ERROR_CODE) ? 2 : 1;
 }
 
-export function performCompilation({rootNames, options, host, oldProgram, emitCallback,
-                                    mergeEmitResultsCallback,
-                                    gatherDiagnostics = defaultGatherDiagnostics,
-                                    customTransformers, emitFlags = api.EmitFlags.Default}: {
-  rootNames: string[],
-  options: api.CompilerOptions,
-  host?: api.CompilerHost,
-  oldProgram?: api.Program,
-  emitCallback?: api.TsEmitCallback,
-  mergeEmitResultsCallback?: api.TsMergeEmitResultsCallback,
-  gatherDiagnostics?: (program: api.Program) => Diagnostics,
-  customTransformers?: api.CustomTransformers,
-  emitFlags?: api.EmitFlags
+export function performCompilation<CbEmitRes extends ts.EmitResult = ts.EmitResult>({
+  rootNames,
+  options,
+  host,
+  oldProgram,
+  emitCallback,
+  mergeEmitResultsCallback,
+  gatherDiagnostics = defaultGatherDiagnostics,
+  customTransformers,
+  emitFlags = api.EmitFlags.Default,
+  forceEmit = false,
+  modifiedResourceFiles = null,
+}: {
+  rootNames: string[];
+  options: api.CompilerOptions;
+  host?: api.CompilerHost;
+  oldProgram?: api.Program;
+  emitCallback?: api.TsEmitCallback<CbEmitRes>;
+  mergeEmitResultsCallback?: api.TsMergeEmitResultsCallback<CbEmitRes>;
+  gatherDiagnostics?: (program: api.Program) => ReadonlyArray<ts.Diagnostic>;
+  customTransformers?: api.CustomTransformers;
+  emitFlags?: api.EmitFlags;
+  forceEmit?: boolean;
+  modifiedResourceFiles?: Set<string> | null;
 }): PerformCompilationResult {
-  let program: api.Program|undefined;
-  let emitResult: ts.EmitResult|undefined;
-  let allDiagnostics: Array<ts.Diagnostic|api.Diagnostic> = [];
+  let program: api.Program | undefined;
+  let emitResult: ts.EmitResult | undefined;
+  let allDiagnostics: Array<ts.Diagnostic> = [];
   try {
     if (!host) {
       host = ng.createCompilerHost({options});
+    }
+    if (modifiedResourceFiles) {
+      host.getModifiedResourceFiles = () => modifiedResourceFiles;
     }
 
     program = ng.createProgram({rootNames, host, options, oldProgram});
 
     const beforeDiags = Date.now();
-    allDiagnostics.push(...gatherDiagnostics(program !));
+    allDiagnostics.push(...gatherDiagnostics(program!));
     if (options.diagnostics) {
       const afterDiags = Date.now();
       allDiagnostics.push(
-          createMessageDiagnostic(`Time for diagnostics: ${afterDiags - beforeDiags}ms.`));
+        createMessageDiagnostic(`Time for diagnostics: ${afterDiags - beforeDiags}ms.`),
+      );
     }
 
     if (!hasErrors(allDiagnostics)) {
-      emitResult =
-          program !.emit({emitCallback, mergeEmitResultsCallback, customTransformers, emitFlags});
+      emitResult = program!.emit({
+        emitCallback,
+        mergeEmitResultsCallback,
+        customTransformers,
+        emitFlags,
+        forceEmit,
+      });
       allDiagnostics.push(...emitResult.diagnostics);
       return {diagnostics: allDiagnostics, program, emitResult};
     }
     return {diagnostics: allDiagnostics, program};
   } catch (e) {
-    let errMsg: string;
-    let code: number;
-    if (isSyntaxError(e)) {
-      // don't report the stack for syntax errors as they are well known errors.
-      errMsg = e.message;
-      code = api.DEFAULT_ERROR_CODE;
-    } else {
-      errMsg = e.stack;
-      // It is not a syntax error we might have a program with unknown state, discard it.
-      program = undefined;
-      code = api.UNKNOWN_ERROR_CODE;
-    }
-    allDiagnostics.push(
-        {category: ts.DiagnosticCategory.Error, messageText: errMsg, code, source: api.SOURCE});
+    // We might have a program with unknown state, discard it.
+    program = undefined;
+    allDiagnostics.push({
+      category: ts.DiagnosticCategory.Error,
+      messageText: (e as Error).stack ?? (e as Error).message,
+      code: api.UNKNOWN_ERROR_CODE,
+      file: undefined,
+      start: undefined,
+      length: undefined,
+    });
     return {diagnostics: allDiagnostics, program};
   }
 }
-function defaultGatherDiagnostics(program: api.Program): Diagnostics {
-  const allDiagnostics: Array<ts.Diagnostic|api.Diagnostic> = [];
+export function defaultGatherDiagnostics(program: api.Program): ReadonlyArray<ts.Diagnostic> {
+  const allDiagnostics: Array<ts.Diagnostic> = [];
 
-  function checkDiagnostics(diags: Diagnostics | undefined) {
+  function checkDiagnostics(diags: ReadonlyArray<ts.Diagnostic> | undefined) {
     if (diags) {
       allDiagnostics.push(...diags);
       return !hasErrors(diags);
@@ -285,26 +402,29 @@ function defaultGatherDiagnostics(program: api.Program): Diagnostics {
 
   let checkOtherDiagnostics = true;
   // Check parameter diagnostics
-  checkOtherDiagnostics = checkOtherDiagnostics &&
-      checkDiagnostics([...program.getTsOptionDiagnostics(), ...program.getNgOptionDiagnostics()]);
+  checkOtherDiagnostics =
+    checkOtherDiagnostics &&
+    checkDiagnostics([...program.getTsOptionDiagnostics(), ...program.getNgOptionDiagnostics()]);
 
   // Check syntactic diagnostics
   checkOtherDiagnostics =
-      checkOtherDiagnostics && checkDiagnostics(program.getTsSyntacticDiagnostics() as Diagnostics);
+    checkOtherDiagnostics && checkDiagnostics(program.getTsSyntacticDiagnostics());
 
   // Check TypeScript semantic and Angular structure diagnostics
   checkOtherDiagnostics =
-      checkOtherDiagnostics &&
-      checkDiagnostics(
-          [...program.getTsSemanticDiagnostics(), ...program.getNgStructuralDiagnostics()]);
+    checkOtherDiagnostics &&
+    checkDiagnostics([
+      ...program.getTsSemanticDiagnostics(),
+      ...program.getNgStructuralDiagnostics(),
+    ]);
 
   // Check Angular semantic diagnostics
   checkOtherDiagnostics =
-      checkOtherDiagnostics && checkDiagnostics(program.getNgSemanticDiagnostics() as Diagnostics);
+    checkOtherDiagnostics && checkDiagnostics(program.getNgSemanticDiagnostics());
 
   return allDiagnostics;
 }
 
-function hasErrors(diags: Diagnostics) {
-  return diags.some(d => d.category === ts.DiagnosticCategory.Error);
+function hasErrors(diags: ReadonlyArray<ts.Diagnostic>) {
+  return diags.some((d) => d.category === ts.DiagnosticCategory.Error);
 }

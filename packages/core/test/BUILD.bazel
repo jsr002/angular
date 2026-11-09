@@ -1,47 +1,73 @@
+load("//tools:defaults.bzl", "angular_jasmine_test", "ng_web_test_suite", "ts_project")
+
 package(default_visibility = ["//visibility:public"])
 
-load("//tools:defaults.bzl", "jasmine_node_test", "ts_library", "ts_web_test_suite")
+UTILS = [
+    "linker/source_map_util.ts",
+]
 
-ts_library(
+ts_project(
+    name = "test_utils",
+    testonly = True,
+    srcs = UTILS,
+    deps = [
+        "//:node_modules/source-map",
+        "//packages/compiler",
+    ],
+)
+
+ts_project(
     name = "test_lib",
     testonly = True,
     srcs = glob(
         ["**/*.ts"],
-        exclude = [
+        exclude = UTILS + [
             "**/*_node_only_spec.ts",
         ],
     ),
+    visibility = ["//:__pkg__"],
     deps = [
+        ":test_utils",
+        "//:node_modules/rxjs",
+        "//:node_modules/zone.js",
         "//packages/animations",
         "//packages/animations/browser",
         "//packages/animations/browser/testing",
         "//packages/common",
+        "//packages/common/locales",
         "//packages/compiler",
-        "//packages/compiler/testing",
         "//packages/core",
+        "//packages/core/primitives/devtools",
+        "//packages/core/rxjs-interop",
+        "//packages/core/src/di/interface",
+        "//packages/core/src/interface",
+        "//packages/core/src/reflection",
+        "//packages/core/src/util",
         "//packages/core/testing",
+        "//packages/localize/init",
         "//packages/platform-browser",
-        "//packages/platform-browser-dynamic",
         "//packages/platform-browser/animations",
         "//packages/platform-browser/testing",
+        "//packages/platform-server",
         "//packages/private/testing",
         "//packages/router",
         "//packages/router/testing",
-        "@ngdeps//zone.js",
-        "@rxjs",
-        "@rxjs//operators",
     ],
 )
 
-ts_library(
+ts_project(
     name = "test_node_only_lib",
     testonly = True,
-    srcs = glob(["**/*_node_only_spec.ts"]),
+    srcs = glob(
+        ["**/*_node_only_spec.ts"],
+        exclude = UTILS,
+    ),
     deps = [
         ":test_lib",
+        ":test_utils",
         "//packages/compiler",
-        "//packages/compiler/testing",
         "//packages/core",
+        "//packages/core/src/compiler",
         "//packages/core/testing",
         "//packages/platform-server",
         "//packages/platform-server/testing",
@@ -49,26 +75,18 @@ ts_library(
     ],
 )
 
-jasmine_node_test(
+angular_jasmine_test(
     name = "test",
-    bootstrap = ["angular/tools/testing/init_node_spec.js"],
-    deps = [
+    data = [
         ":test_lib",
         ":test_node_only_lib",
-        "//packages/platform-server",
-        "//packages/platform-server/testing",
-        "//tools/testing:node",
-        "@ngdeps//base64-js",
-        "@ngdeps//source-map",
-        "@ngdeps//zone.js",
     ],
+    shard_count = 4,
 )
 
-ts_web_test_suite(
+ng_web_test_suite(
     name = "test_web",
-    tags = [
-        "fixme-ivy-aot",
-    ],
+    external = ["@angular/platform-server"],
     deps = [
         ":test_lib",
     ],

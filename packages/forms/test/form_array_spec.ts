@@ -1,52 +1,57 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-import {fakeAsync, tick} from '@angular/core/testing';
-import {AsyncTestCompleter, beforeEach, describe, inject, it} from '@angular/core/testing/src/testing_internal';
-import {AbstractControl, FormArray, FormControl, FormGroup, ValidationErrors} from '@angular/forms';
-import {Validators} from '@angular/forms/src/validators';
-import {of } from 'rxjs';
+import {Component, Directive, effect, forwardRef, signal} from '@angular/core';
+import {TestBed} from '@angular/core/testing';
+import {of} from 'rxjs';
+import {
+  AbstractControl,
+  ControlValueAccessor,
+  FormArray,
+  FormControl,
+  FormGroup,
+  NG_VALUE_ACCESSOR,
+  ReactiveFormsModule,
+  ValidationErrors,
+  ValidatorFn,
+} from '../index';
+import {Validators} from '../src/validators';
 
-(function() {
-  function asyncValidator(expected: string, timeouts = {}) {
-    return (c: AbstractControl) => {
-      let resolve: (result: any) => void = undefined !;
-      const promise = new Promise(res => { resolve = res; });
-      const t = (timeouts as any)[c.value] != null ? (timeouts as any)[c.value] : 0;
-      const res = c.value != expected ? {'async': true} : null;
+import {timeout, useAutoTick} from '@angular/private/testing';
+import {asyncValidator} from './util';
 
-      if (t == 0) {
-        resolve(res);
-      } else {
-        setTimeout(() => { resolve(res); }, t);
-      }
-
-      return promise;
-    };
-  }
-
+(function () {
   describe('FormArray', () => {
+    useAutoTick();
 
     describe('adding/removing', () => {
       let a: FormArray;
       let c1: FormControl, c2: FormControl, c3: FormControl;
+      let logger: string[];
 
       beforeEach(() => {
-        a = new FormArray([]);
+        a = new FormArray<any>([]);
         c1 = new FormControl(1);
         c2 = new FormControl(2);
         c3 = new FormControl(3);
+        logger = [];
       });
 
       it('should support pushing', () => {
         a.push(c1);
         expect(a.length).toEqual(1);
         expect(a.controls).toEqual([c1]);
+      });
+
+      it('should support pushing an array', () => {
+        a.push([c1, c2]);
+        expect(a.length).toEqual(2);
+        expect(a.controls).toEqual([c1, c2]);
       });
 
       it('should support removing', () => {
@@ -59,6 +64,20 @@ import {of } from 'rxjs';
         expect(a.controls).toEqual([c1, c3]);
       });
 
+      it('should support clearing', () => {
+        a.push(c1);
+        a.push(c2);
+        a.push(c3);
+
+        a.clear();
+
+        expect(a.controls).toEqual([]);
+
+        a.clear();
+
+        expect(a.controls).toEqual([]);
+      });
+
       it('should support inserting', () => {
         a.push(c1);
         a.push(c3);
@@ -66,6 +85,99 @@ import {of } from 'rxjs';
         a.insert(1, c2);
 
         expect(a.controls).toEqual([c1, c2, c3]);
+      });
+
+      it('should not emit events when calling `FormArray.push` with `emitEvent: false`', () => {
+        a.valueChanges.subscribe(() => logger.push('value change'));
+        a.statusChanges.subscribe(() => logger.push('status change'));
+
+        a.push(c1, {emitEvent: false});
+
+        expect(a.length).toEqual(1);
+        expect(a.controls).toEqual([c1]);
+        expect(logger).toEqual([]);
+      });
+
+      it('should not emit events when calling `FormArray.removeAt` with `emitEvent: false`', () => {
+        a.push(c1);
+        a.push(c2);
+        a.push(c3);
+
+        a.valueChanges.subscribe(() => logger.push('value change'));
+        a.statusChanges.subscribe(() => logger.push('status change'));
+
+        a.removeAt(1, {emitEvent: false});
+
+        expect(a.controls).toEqual([c1, c3]);
+        expect(logger).toEqual([]);
+      });
+
+      it('should not emit events when calling `FormArray.clear` with `emitEvent: false`', () => {
+        a.push(c1);
+        a.push(c2);
+        a.push(c3);
+
+        a.valueChanges.subscribe(() => logger.push('value change'));
+        a.statusChanges.subscribe(() => logger.push('status change'));
+
+        a.clear({emitEvent: false});
+
+        expect(a.controls).toEqual([]);
+        expect(logger).toEqual([]);
+      });
+
+      it('should not emit events when calling `FormArray.insert` with `emitEvent: false`', () => {
+        a.push(c1);
+        a.push(c3);
+
+        a.valueChanges.subscribe(() => logger.push('value change'));
+        a.statusChanges.subscribe(() => logger.push('status change'));
+
+        a.insert(1, c2, {emitEvent: false});
+
+        expect(a.controls).toEqual([c1, c2, c3]);
+        expect(logger).toEqual([]);
+      });
+
+      it('should not emit events when calling `FormArray.setControl` with `emitEvent: false`', () => {
+        a.push(c1);
+        a.push(c3);
+
+        a.valueChanges.subscribe(() => logger.push('value change'));
+        a.statusChanges.subscribe(() => logger.push('status change'));
+
+        a.setControl(1, c2, {emitEvent: false});
+
+        expect(a.controls).toEqual([c1, c2]);
+        expect(logger).toEqual([]);
+      });
+
+      it('should not emit status change events when `FormArray.push` is called with `emitEvent: false`', () => {
+        // Adding validators to make sure there are no status change event submitted when form
+        // becomes invalid.
+        const validatorFn = (value: any) => (value.controls.length > 0 ? {controls: true} : null);
+        const asyncValidatorFn = (value: any) => of(validatorFn(value));
+        const arr: FormArray = new FormArray<any>([], validatorFn, asyncValidatorFn);
+        expect(arr.valid).toBe(true);
+
+        arr.statusChanges.subscribe(() => logger.push('status change'));
+
+        arr.push(c1, {emitEvent: false});
+
+        expect(arr.valid).toBe(false);
+        expect(logger).toEqual([]);
+      });
+
+      it('should not emit events on the parent when called with `emitEvent: false`', () => {
+        const form = new FormGroup({child: a});
+
+        form.valueChanges.subscribe(() => logger.push('form value change'));
+        a.valueChanges.subscribe(() => logger.push('array value change'));
+        form.statusChanges.subscribe(() => logger.push('form status change'));
+        a.statusChanges.subscribe(() => logger.push('array status change'));
+
+        a.push(new FormControl(5), {emitEvent: false});
+        expect(logger).toEqual([]);
       });
     });
 
@@ -86,13 +198,122 @@ import {of } from 'rxjs';
 
       it('should work with nested form groups/arrays', () => {
         a = new FormArray([
-          new FormGroup({'c2': new FormControl('v2'), 'c3': new FormControl('v3')}),
-          new FormArray([new FormControl('v4'), new FormControl('v5')])
+          new FormGroup({
+            'c2': new FormControl('v2') as AbstractControl,
+            'c3': new FormControl('v3'),
+          }) as any,
+          new FormArray([new FormControl('v4'), new FormControl('v5')]),
         ]);
-        a.at(0).get('c3') !.disable();
+        a.at(0).get('c3')!.disable();
         (a.at(1) as FormArray).at(1).disable();
 
         expect(a.getRawValue()).toEqual([{'c2': 'v2', 'c3': 'v3'}, ['v4', 'v5']]);
+      });
+    });
+
+    describe('markAllAsDirty', () => {
+      it('should mark all descendants as dirty', () => {
+        const formArray: FormArray = new FormArray([
+          new FormControl('v1') as AbstractControl,
+          new FormControl('v2'),
+          new FormGroup({'c1': new FormControl('v1')}),
+          new FormArray([new FormGroup({'c2': new FormControl('v2')})]),
+        ]);
+
+        expect(formArray.dirty).toBe(false);
+
+        const control1 = formArray.at(0) as FormControl;
+
+        expect(control1.dirty).toBe(false);
+
+        const group1 = formArray.at(2) as FormGroup;
+
+        expect(group1.dirty).toBe(false);
+
+        const group1Control1 = group1.get('c1') as FormControl;
+
+        expect(group1Control1.dirty).toBe(false);
+
+        const innerFormArray = formArray.at(3) as FormArray;
+
+        expect(innerFormArray.dirty).toBe(false);
+
+        const innerFormArrayGroup = innerFormArray.at(0) as FormGroup;
+
+        expect(innerFormArrayGroup.dirty).toBe(false);
+
+        const innerFormArrayGroupControl1 = innerFormArrayGroup.get('c2') as FormControl;
+
+        expect(innerFormArrayGroupControl1.dirty).toBe(false);
+
+        formArray.markAllAsDirty();
+
+        expect(formArray.dirty).toBe(true);
+
+        expect(control1.dirty).toBe(true);
+
+        expect(group1.dirty).toBe(true);
+
+        expect(group1Control1.dirty).toBe(true);
+
+        expect(innerFormArray.dirty).toBe(true);
+
+        expect(innerFormArrayGroup.dirty).toBe(true);
+
+        expect(innerFormArrayGroupControl1.dirty).toBe(true);
+      });
+    });
+
+    describe('markAllAsTouched', () => {
+      it('should mark all descendants as touched', () => {
+        const formArray: FormArray = new FormArray([
+          new FormControl('v1') as AbstractControl,
+          new FormControl('v2'),
+          new FormGroup({'c1': new FormControl('v1')}),
+          new FormArray([new FormGroup({'c2': new FormControl('v2')})]),
+        ]);
+
+        expect(formArray.touched).toBe(false);
+
+        const control1 = formArray.at(0) as FormControl;
+
+        expect(control1.touched).toBe(false);
+
+        const group1 = formArray.at(2) as FormGroup;
+
+        expect(group1.touched).toBe(false);
+
+        const group1Control1 = group1.get('c1') as FormControl;
+
+        expect(group1Control1.touched).toBe(false);
+
+        const innerFormArray = formArray.at(3) as FormArray;
+
+        expect(innerFormArray.touched).toBe(false);
+
+        const innerFormArrayGroup = innerFormArray.at(0) as FormGroup;
+
+        expect(innerFormArrayGroup.touched).toBe(false);
+
+        const innerFormArrayGroupControl1 = innerFormArrayGroup.get('c2') as FormControl;
+
+        expect(innerFormArrayGroupControl1.touched).toBe(false);
+
+        formArray.markAllAsTouched();
+
+        expect(formArray.touched).toBe(true);
+
+        expect(control1.touched).toBe(true);
+
+        expect(group1.touched).toBe(true);
+
+        expect(group1Control1.touched).toBe(true);
+
+        expect(innerFormArray.touched).toBe(true);
+
+        expect(innerFormArrayGroup.touched).toBe(true);
+
+        expect(innerFormArrayGroupControl1.touched).toBe(true);
       });
     });
 
@@ -146,26 +367,29 @@ import {of } from 'rxjs';
       });
 
       it('should throw if fields are missing from supplied value (subset)', () => {
-        expect(() => a.setValue([, 'two']))
-            .toThrowError(new RegExp(`Must supply a value for form control at index: 0`));
+        expect(() => a.setValue([, 'two'])).toThrowError(
+          new RegExp(`NG01002: Must supply a value for form control at index: 0`),
+        );
       });
 
       it('should throw if a value is provided for a missing control (superset)', () => {
-        expect(() => a.setValue([
-          'one', 'two', 'three'
-        ])).toThrowError(new RegExp(`Cannot find form control at index 2`));
+        expect(() => a.setValue(['one', 'two', 'three'])).toThrowError(
+          new RegExp(`NG01001: Cannot find form control at index: 2`),
+        );
       });
 
       it('should throw if a value is not provided for a disabled control', () => {
         c2.disable();
-        expect(() => a.setValue(['one']))
-            .toThrowError(new RegExp(`Must supply a value for form control at index: 1`));
+        expect(() => a.setValue(['one'])).toThrowError(
+          new RegExp(`NG01002: Must supply a value for form control at index: 1`),
+        );
       });
 
       it('should throw if no controls are set yet', () => {
-        const empty = new FormArray([]);
-        expect(() => empty.setValue(['one']))
-            .toThrowError(new RegExp(`no form controls registered with this array`));
+        const empty: FormArray = new FormArray<any>([]);
+        expect(() => empty.setValue(['one'])).toThrowError(
+          new RegExp(`no form controls registered with this array`),
+        );
       });
 
       describe('setValue() events', () => {
@@ -187,15 +411,15 @@ import {of } from 'rxjs';
           expect(logger).toEqual(['control1', 'control2', 'array', 'form']);
         });
 
-        it('should not fire an event when explicitly specified', fakeAsync(() => {
-             form.valueChanges.subscribe((value) => { throw 'Should not happen'; });
-             a.valueChanges.subscribe((value) => { throw 'Should not happen'; });
-             c.valueChanges.subscribe((value) => { throw 'Should not happen'; });
-             c2.valueChanges.subscribe((value) => { throw 'Should not happen'; });
+        it('should not fire events when called with `emitEvent: false`', () => {
+          form.valueChanges.subscribe(() => logger.push('form'));
+          a.valueChanges.subscribe(() => logger.push('array'));
+          c.valueChanges.subscribe(() => logger.push('control1'));
+          c2.valueChanges.subscribe(() => logger.push('control2'));
 
-             a.setValue(['one', 'two'], {emitEvent: false});
-             tick();
-           }));
+          a.setValue(['one', 'two'], {emitEvent: false});
+          expect(logger).toEqual([]);
+        });
 
         it('should emit one statusChange event per control', () => {
           form.statusChanges.subscribe(() => logger.push('form'));
@@ -210,12 +434,13 @@ import {of } from 'rxjs';
     });
 
     describe('patchValue', () => {
-      let c: FormControl, c2: FormControl, a: FormArray;
+      let c: FormControl, c2: FormControl, a: FormArray, a2: FormArray;
 
       beforeEach(() => {
         c = new FormControl('');
         c2 = new FormControl('');
         a = new FormArray([c, c2]);
+        a2 = new FormArray([a]);
       });
 
       it('should set its own value', () => {
@@ -273,6 +498,16 @@ import {of } from 'rxjs';
         expect(a.value).toEqual(['', '']);
       });
 
+      it('should ignore a array if `null` or `undefined` are used as values', () => {
+        const INITIAL_STATE = [['', '']];
+
+        a2.patchValue([null]);
+        expect(a2.value).toEqual(INITIAL_STATE);
+
+        a2.patchValue([undefined]);
+        expect(a2.value).toEqual(INITIAL_STATE);
+      });
+
       describe('patchValue() events', () => {
         let form: FormGroup;
         let logger: any[];
@@ -302,15 +537,31 @@ import {of } from 'rxjs';
           expect(logger).toEqual(['control1', 'array', 'form']);
         });
 
-        it('should not fire an event when explicitly specified', fakeAsync(() => {
-             form.valueChanges.subscribe((value) => { throw 'Should not happen'; });
-             a.valueChanges.subscribe((value) => { throw 'Should not happen'; });
-             c.valueChanges.subscribe((value) => { throw 'Should not happen'; });
-             c2.valueChanges.subscribe((value) => { throw 'Should not happen'; });
+        it('should not emit valueChange events for skipped controls (represented as `null` or `undefined`)', () => {
+          const logEvent = () => logger.push('valueChanges event');
 
-             a.patchValue(['one', 'two'], {emitEvent: false});
-             tick();
-           }));
+          const [formArrayControl1, formArrayControl2] = (a2.controls as FormArray[])[0].controls;
+
+          formArrayControl1.valueChanges.subscribe(logEvent);
+          formArrayControl2.valueChanges.subscribe(logEvent);
+
+          a2.patchValue([null]);
+          a2.patchValue([undefined]);
+
+          // No events are expected in `valueChanges` since
+          // all controls were skipped in `patchValue`.
+          expect(logger).toEqual([]);
+        });
+
+        it('should not fire events when called with `emitEvent: false`', () => {
+          form.valueChanges.subscribe(() => logger.push('form'));
+          a.valueChanges.subscribe(() => logger.push('array'));
+          c.valueChanges.subscribe(() => logger.push('control1'));
+          c2.valueChanges.subscribe(() => logger.push('control2'));
+
+          a.patchValue(['one', 'two'], {emitEvent: false});
+          expect(logger).toEqual([]);
+        });
 
         it('should emit one statusChange event per control', () => {
           form.statusChanges.subscribe(() => logger.push('form'));
@@ -492,7 +743,6 @@ import {of } from 'rxjs';
         expect(a.disabled).toBe(false);
       });
 
-
       describe('reset() events', () => {
         let form: FormGroup, c3: FormControl, logger: any[];
 
@@ -513,16 +763,16 @@ import {of } from 'rxjs';
           expect(logger).toEqual(['control1', 'control2', 'array', 'form']);
         });
 
-        it('should not fire an event when explicitly specified', fakeAsync(() => {
-             form.valueChanges.subscribe((value) => { throw 'Should not happen'; });
-             a.valueChanges.subscribe((value) => { throw 'Should not happen'; });
-             c.valueChanges.subscribe((value) => { throw 'Should not happen'; });
-             c2.valueChanges.subscribe((value) => { throw 'Should not happen'; });
-             c3.valueChanges.subscribe((value) => { throw 'Should not happen'; });
+        it('should not fire events when called with `emitEvent: false`', () => {
+          form.valueChanges.subscribe(() => logger.push('form'));
+          a.valueChanges.subscribe(() => logger.push('array'));
+          c.valueChanges.subscribe(() => logger.push('control1'));
+          c2.valueChanges.subscribe(() => logger.push('control2'));
+          c3.valueChanges.subscribe(() => logger.push('control3'));
 
-             a.reset([], {emitEvent: false});
-             tick();
-           }));
+          a.reset([], {emitEvent: false});
+          expect(logger).toEqual([]);
+        });
 
         it('should emit one statusChange event per reset control', () => {
           form.statusChanges.subscribe(() => logger.push('form'));
@@ -534,16 +784,32 @@ import {of } from 'rxjs';
           a.reset();
           expect(logger).toEqual(['control1', 'control2', 'array', 'form']);
         });
+
+        it('should mark as pristine and not dirty before emitting valueChange and statusChange events when resetting', () => {
+          const pristineAndNotDirty = () => {
+            expect(a.pristine).toBe(true);
+            expect(a.dirty).toBe(false);
+          };
+
+          c2.markAsDirty();
+          expect(a.pristine).toBe(false);
+          expect(a.dirty).toBe(true);
+
+          a.valueChanges.subscribe(pristineAndNotDirty);
+          a.statusChanges.subscribe(pristineAndNotDirty);
+
+          a.reset();
+        });
       });
     });
 
     describe('errors', () => {
       it('should run the validator when the value changes', () => {
         const simpleValidator = (c: FormArray) =>
-            c.controls[0].value != 'correct' ? {'broken': true} : null;
+          c.controls[0].value != 'correct' ? {'broken': true} : null;
 
-        const c = new FormControl(null);
-        const g = new FormArray([c], simpleValidator);
+        const c = new FormControl('');
+        const g = new FormArray([c], simpleValidator as ValidatorFn);
 
         c.setValue('correct');
 
@@ -557,7 +823,6 @@ import {of } from 'rxjs';
       });
     });
 
-
     describe('dirty', () => {
       let c: FormControl;
       let a: FormArray;
@@ -567,7 +832,9 @@ import {of } from 'rxjs';
         a = new FormArray([c]);
       });
 
-      it('should be false after creating a control', () => { expect(a.dirty).toEqual(false); });
+      it('should be false after creating a control', () => {
+        expect(a.dirty).toEqual(false);
+      });
 
       it('should be true after changing the value of the control', () => {
         c.markAsDirty();
@@ -585,7 +852,9 @@ import {of } from 'rxjs';
         a = new FormArray([c]);
       });
 
-      it('should be false after creating a control', () => { expect(a.touched).toEqual(false); });
+      it('should be false after creating a control', () => {
+        expect(a.touched).toEqual(false);
+      });
 
       it('should be true after child control is marked as touched', () => {
         c.markAsTouched();
@@ -593,7 +862,6 @@ import {of } from 'rxjs';
         expect(a.touched).toEqual(true);
       });
     });
-
 
     describe('pending', () => {
       let c: FormControl;
@@ -641,7 +909,7 @@ import {of } from 'rxjs';
           expect(logger).toEqual([]);
         });
 
-        it('should not emit event when emitEvent = false', () => {
+        it('should not emit events when called with `emitEvent: false`', () => {
           c.markAsPending({emitEvent: false});
           expect(logger).toEqual([]);
         });
@@ -651,12 +919,11 @@ import {of } from 'rxjs';
           expect(logger).toEqual(['PENDING']);
         });
       });
-
     });
 
     describe('valueChanges', () => {
       let a: FormArray;
-      let c1: any /** TODO #9100 */, c2: any /** TODO #9100 */;
+      let c1: FormControl, c2: FormControl;
 
       beforeEach(() => {
         c1 = new FormControl('old1');
@@ -664,66 +931,77 @@ import {of } from 'rxjs';
         a = new FormArray([c1, c2]);
       });
 
-      it('should fire an event after the value has been updated',
-         inject([AsyncTestCompleter], (async: AsyncTestCompleter) => {
-           a.valueChanges.subscribe({
-             next: (value: any) => {
-               expect(a.value).toEqual(['new1', 'old2']);
-               expect(value).toEqual(['new1', 'old2']);
-               async.done();
-             }
-           });
-           c1.setValue('new1');
-         }));
+      it('should fire an event after the value has been updated', (done) => {
+        a.valueChanges.subscribe({
+          next: (value: any) => {
+            expect(a.value).toEqual(['new1', 'old2']);
+            expect(value).toEqual(['new1', 'old2']);
+            done();
+          },
+        });
+        c1.setValue('new1');
+      });
 
-      it('should fire an event after the control\'s observable fired an event',
-         inject([AsyncTestCompleter], (async: AsyncTestCompleter) => {
-           let controlCallbackIsCalled = false;
+      it("should fire an event after the control's observable fired an event", (done) => {
+        let controlCallbackIsCalled = false;
 
+        c1.valueChanges.subscribe({
+          next: (value: any) => {
+            controlCallbackIsCalled = true;
+          },
+        });
 
-           c1.valueChanges.subscribe({next: (value: any) => { controlCallbackIsCalled = true; }});
+        a.valueChanges.subscribe({
+          next: (value: any) => {
+            expect(controlCallbackIsCalled).toBe(true);
+            done();
+          },
+        });
 
-           a.valueChanges.subscribe({
-             next: (value: any) => {
-               expect(controlCallbackIsCalled).toBe(true);
-               async.done();
-             }
-           });
+        c1.setValue('new1');
+      });
 
-           c1.setValue('new1');
-         }));
+      it('should fire an event when a control is removed', (done) => {
+        a.valueChanges.subscribe({
+          next: (value: any) => {
+            expect(value).toEqual(['old1']);
+            done();
+          },
+        });
 
-      it('should fire an event when a control is removed',
-         inject([AsyncTestCompleter], (async: AsyncTestCompleter) => {
-           a.valueChanges.subscribe({
-             next: (value: any) => {
-               expect(value).toEqual(['old1']);
-               async.done();
-             }
-           });
+        a.removeAt(1);
+      });
 
-           a.removeAt(1);
-         }));
+      it('should fire an event when a control is added', (done) => {
+        a.removeAt(1);
 
-      it('should fire an event when a control is added',
-         inject([AsyncTestCompleter], (async: AsyncTestCompleter) => {
-           a.removeAt(1);
+        a.valueChanges.subscribe({
+          next: (value: any) => {
+            expect(value).toEqual(['old1', 'old2']);
+            done();
+          },
+        });
 
-           a.valueChanges.subscribe({
-             next: (value: any) => {
-               expect(value).toEqual(['old1', 'old2']);
-               async.done();
-             }
-           });
+        a.push(c2);
+      });
 
-           a.push(c2);
-         }));
+      it('should fire an event once when calling `FormArray.push` with an array of controls', (done) => {
+        a = new FormArray<any>([]);
+        a.valueChanges.subscribe({
+          next: (value: any) => {
+            expect(value).toEqual(['old1', 'old2']);
+            done();
+          },
+        });
+
+        a.push([c1, c2]);
+      });
     });
 
     describe('get', () => {
       it('should return null when path is null', () => {
         const g = new FormGroup({});
-        expect(g.get(null !)).toEqual(null);
+        expect(g.get(null!)).toEqual(null);
       });
 
       it('should return null when path is empty', () => {
@@ -739,28 +1017,28 @@ import {of } from 'rxjs';
       it('should return a child of a control group', () => {
         const g = new FormGroup({
           'one': new FormControl('111'),
-          'nested': new FormGroup({'two': new FormControl('222')})
+          'nested': new FormGroup({'two': new FormControl('222')}),
         });
 
-        expect(g.get(['one']) !.value).toEqual('111');
-        expect(g.get('one') !.value).toEqual('111');
-        expect(g.get(['nested', 'two']) !.value).toEqual('222');
-        expect(g.get('nested.two') !.value).toEqual('222');
+        expect(g.get(['one'])!.value).toEqual('111');
+        expect(g.get('one')!.value).toEqual('111');
+        expect(g.get(['nested', 'two'])!.value).toEqual('222');
+        expect(g.get('nested.two')!.value).toEqual('222');
       });
 
       it('should return an element of an array', () => {
         const g = new FormGroup({'array': new FormArray([new FormControl('111')])});
 
-        expect(g.get(['array', 0]) !.value).toEqual('111');
+        expect(g.get(['array', 0])!.value).toEqual('111');
       });
     });
 
     describe('validator', () => {
-      function simpleValidator(c: AbstractControl): ValidationErrors|null {
-        return c.get([0]) !.value === 'correct' ? null : {'broken': true};
+      function simpleValidator(c: AbstractControl): ValidationErrors | null {
+        return c.get([0])!.value === 'correct' ? null : {'broken': true};
       }
 
-      function arrayRequiredValidator(c: AbstractControl): ValidationErrors|null {
+      function arrayRequiredValidator(c: AbstractControl): ValidationErrors | null {
         return Validators.required(c.get([0]) as AbstractControl);
       }
 
@@ -796,8 +1074,9 @@ import {of } from 'rxjs';
       });
 
       it('should set multiple validators from options obj', () => {
-        const a = new FormArray(
-            [new FormControl()], {validators: [simpleValidator, arrayRequiredValidator]});
+        const a = new FormArray([new FormControl()], {
+          validators: [simpleValidator, arrayRequiredValidator],
+        });
         expect(a.valid).toBe(false);
         expect(a.errors).toEqual({'required': true, 'broken': true});
 
@@ -811,57 +1090,77 @@ import {of } from 'rxjs';
     });
 
     describe('asyncValidator', () => {
-      function otherObservableValidator() { return of ({'other': true}); }
+      function otherObservableValidator() {
+        return of({'other': true});
+      }
 
-      it('should run the async validator', fakeAsync(() => {
-           const c = new FormControl('value');
-           const g = new FormArray([c], null !, asyncValidator('expected'));
+      it('should run the async validator', async () => {
+        const c = new FormControl('value');
+        const g = new FormArray([c], null!, asyncValidator('expected'));
 
-           expect(g.pending).toEqual(true);
+        expect(g.pending).toEqual(true);
 
-           tick();
+        await timeout();
 
-           expect(g.errors).toEqual({'async': true});
-           expect(g.pending).toEqual(false);
-         }));
+        expect(g.errors).toEqual({'async': true});
+        expect(g.pending).toEqual(false);
+      });
 
-      it('should set a single async validator from options obj', fakeAsync(() => {
-           const g = new FormArray(
-               [new FormControl('value')], {asyncValidators: asyncValidator('expected')});
+      it('should set a single async validator from options obj', async () => {
+        const g = new FormArray([new FormControl('value')], {
+          asyncValidators: asyncValidator('expected'),
+        });
 
-           expect(g.pending).toEqual(true);
+        expect(g.pending).toEqual(true);
 
-           tick();
+        await timeout();
 
-           expect(g.errors).toEqual({'async': true});
-           expect(g.pending).toEqual(false);
-         }));
+        expect(g.errors).toEqual({'async': true});
+        expect(g.pending).toEqual(false);
+      });
 
-      it('should set multiple async validators from an array', fakeAsync(() => {
-           const g = new FormArray(
-               [new FormControl('value')], null !,
-               [asyncValidator('expected'), otherObservableValidator]);
+      it('should set multiple async validators from an array', async () => {
+        const g = new FormArray([new FormControl('value')], null!, [
+          asyncValidator('expected'),
+          otherObservableValidator,
+        ]);
 
-           expect(g.pending).toEqual(true);
+        expect(g.pending).toEqual(true);
 
-           tick();
+        await timeout();
 
-           expect(g.errors).toEqual({'async': true, 'other': true});
-           expect(g.pending).toEqual(false);
-         }));
+        expect(g.errors).toEqual({'async': true, 'other': true});
+        expect(g.pending).toEqual(false);
+      });
 
-      it('should set multiple async validators from options obj', fakeAsync(() => {
-           const g = new FormArray(
-               [new FormControl('value')],
-               {asyncValidators: [asyncValidator('expected'), otherObservableValidator]});
+      it('should set multiple async validators from options obj', async () => {
+        const g = new FormArray([new FormControl('value')], {
+          asyncValidators: [asyncValidator('expected'), otherObservableValidator],
+        });
 
-           expect(g.pending).toEqual(true);
+        expect(g.pending).toEqual(true);
 
-           tick();
+        await timeout();
 
-           expect(g.errors).toEqual({'async': true, 'other': true});
-           expect(g.pending).toEqual(false);
-         }));
+        expect(g.errors).toEqual({'async': true, 'other': true});
+        expect(g.pending).toEqual(false);
+      });
+
+      it('should fire statusChanges events when async validators are added via options object', async () => {
+        // The behavior is tested (in other spec files) for each of the model types (`FormControl`,
+        // `FormGroup` and `FormArray`).
+        let statuses: string[] = [];
+
+        // Create a form control with an async validator added via options object.
+        const asc = new FormArray([], {asyncValidators: [() => Promise.resolve(null)]});
+
+        // Subscribe to status changes.
+        asc.statusChanges.subscribe((status: any) => statuses.push(status));
+
+        // After a tick, the async validator should change status PENDING -> VALID.
+        await timeout();
+        expect(statuses).toEqual(['VALID']);
+      });
     });
 
     describe('disable() & enable()', () => {
@@ -914,57 +1213,59 @@ import {of } from 'rxjs';
       it('should ignore disabled controls in validation', () => {
         const g = new FormGroup({
           nested: new FormArray([new FormControl(null, Validators.required)]),
-          two: new FormControl('two')
+          two: new FormControl('two'),
         });
         expect(g.valid).toBe(false);
 
-        g.get('nested') !.disable();
+        g.get('nested')!.disable();
         expect(g.valid).toBe(true);
 
-        g.get('nested') !.enable();
+        g.get('nested')!.enable();
         expect(g.valid).toBe(false);
       });
 
       it('should ignore disabled controls when serializing value', () => {
-        const g = new FormGroup(
-            {nested: new FormArray([new FormControl('one')]), two: new FormControl('two')});
+        const g = new FormGroup({
+          nested: new FormArray([new FormControl('one')]),
+          two: new FormControl('two'),
+        });
         expect(g.value).toEqual({'nested': ['one'], 'two': 'two'});
 
-        g.get('nested') !.disable();
+        g.get('nested')!.disable();
         expect(g.value).toEqual({'two': 'two'});
 
-        g.get('nested') !.enable();
+        g.get('nested')!.enable();
         expect(g.value).toEqual({'nested': ['one'], 'two': 'two'});
       });
 
       it('should ignore disabled controls when determining dirtiness', () => {
         const g = new FormGroup({nested: a, two: new FormControl('two')});
-        g.get(['nested', 0]) !.markAsDirty();
+        g.get(['nested', 0])!.markAsDirty();
         expect(g.dirty).toBe(true);
 
-        g.get('nested') !.disable();
-        expect(g.get('nested') !.dirty).toBe(true);
+        g.get('nested')!.disable();
+        expect(g.get('nested')!.dirty).toBe(true);
         expect(g.dirty).toEqual(false);
 
-        g.get('nested') !.enable();
+        g.get('nested')!.enable();
         expect(g.dirty).toEqual(true);
       });
 
       it('should ignore disabled controls when determining touched state', () => {
         const g = new FormGroup({nested: a, two: new FormControl('two')});
-        g.get(['nested', 0]) !.markAsTouched();
+        g.get(['nested', 0])!.markAsTouched();
         expect(g.touched).toBe(true);
 
-        g.get('nested') !.disable();
-        expect(g.get('nested') !.touched).toBe(true);
+        g.get('nested')!.disable();
+        expect(g.get('nested')!.touched).toBe(true);
         expect(g.touched).toEqual(false);
 
-        g.get('nested') !.enable();
+        g.get('nested')!.enable();
         expect(g.touched).toEqual(true);
       });
 
       it('should keep empty, disabled arrays disabled when updating validity', () => {
-        const arr = new FormArray([]);
+        const arr: FormArray = new FormArray<any>([]);
         expect(arr.status).toEqual('VALID');
 
         arr.disable();
@@ -1025,31 +1326,31 @@ import {of } from 'rxjs';
           expect(arr.errors).toEqual({'expected': true});
         });
 
-        it('should clear out async array errors when disabled', fakeAsync(() => {
-             const arr = new FormArray([new FormControl()], null !, asyncValidator('expected'));
-             tick();
-             expect(arr.errors).toEqual({'async': true});
+        it('should clear out async array errors when disabled', async () => {
+          const arr = new FormArray([new FormControl()], null!, asyncValidator('expected'));
+          await timeout();
+          expect(arr.errors).toEqual({'async': true});
 
-             arr.disable();
-             expect(arr.errors).toEqual(null);
+          arr.disable();
+          expect(arr.errors).toEqual(null);
 
-             arr.enable();
-             tick();
-             expect(arr.errors).toEqual({'async': true});
-           }));
+          arr.enable();
+          await timeout();
+          expect(arr.errors).toEqual({'async': true});
+        });
 
-        it('should re-populate async array errors when enabled from a child', fakeAsync(() => {
-             const arr = new FormArray([new FormControl()], null !, asyncValidator('expected'));
-             tick();
-             expect(arr.errors).toEqual({'async': true});
+        it('should re-populate async array errors when enabled from a child', async () => {
+          const arr = new FormArray([new FormControl()], null!, asyncValidator('expected'));
+          await timeout();
+          expect(arr.errors).toEqual({'async': true});
 
-             arr.disable();
-             expect(arr.errors).toEqual(null);
+          arr.disable();
+          expect(arr.errors).toEqual(null);
 
-             arr.push(new FormControl());
-             tick();
-             expect(arr.errors).toEqual({'async': true});
-           }));
+          arr.push(new FormControl());
+          await timeout();
+          expect(arr.errors).toEqual({'async': true});
+        });
       });
 
       describe('disabled events', () => {
@@ -1083,7 +1384,7 @@ import {of } from 'rxjs';
           expect(logger).toEqual(['control', 'array', 'form']);
         });
 
-        it('should not emit value change events when emitEvent = false', () => {
+        it('should not emit value change events when called with `emitEvent: false`', () => {
           c.valueChanges.subscribe(() => logger.push('control'));
           a.valueChanges.subscribe(() => logger.push('array'));
           form.valueChanges.subscribe(() => logger.push('form'));
@@ -1094,7 +1395,7 @@ import {of } from 'rxjs';
           expect(logger).toEqual([]);
         });
 
-        it('should not emit status change events when emitEvent = false', () => {
+        it('should not emit status change events when called with `emitEvent: false`', () => {
           c.statusChanges.subscribe(() => logger.push('control'));
           a.statusChanges.subscribe(() => logger.push('array'));
           form.statusChanges.subscribe(() => logger.push('form'));
@@ -1104,7 +1405,6 @@ import {of } from 'rxjs';
           a.enable({emitEvent: false});
           expect(logger).toEqual([]);
         });
-
       });
 
       describe('setControl()', () => {
@@ -1135,7 +1435,7 @@ import {of } from 'rxjs';
         });
 
         it('should remove control if new control is null', () => {
-          a.setControl(0, null !);
+          a.setControl(0, null!);
           expect(a.controls[0]).not.toBeDefined();
           expect(a.value).toEqual([]);
         });
@@ -1147,9 +1447,316 @@ import {of } from 'rxjs';
           a.setControl(0, c2);
           expect(logger).toEqual(['change!']);
         });
+      });
+    });
 
+    describe('out of bounds positive indices', () => {
+      let c1: FormControl = new FormControl(1);
+      let c2: FormControl = new FormControl(2);
+      let c3: FormControl = new FormControl(3);
+      let c4: FormControl = new FormControl(4);
+      let c99: FormControl = new FormControl(99);
+
+      let fa: FormArray;
+
+      beforeEach(() => {
+        fa = new FormArray([c1, c2, c3, c4]);
       });
 
+      // This spec checks the behavior is identical to `Array.prototype.at(index)`
+      it('should work with at', () => {
+        expect(fa.at(4)).toBeUndefined();
+      });
+
+      // This spec checks the behavior is identical to `Array.prototype.splice(index, 1, ...)`
+      it('should work with setControl', () => {
+        fa.setControl(4, c99);
+        expect(fa.value).toEqual([1, 2, 3, 4, 99]);
+      });
+
+      // This spec checks the behavior is identical to `Array.prototype.splice(index, 1)`
+      it('should work with removeAt', () => {
+        fa.removeAt(4);
+        expect(fa.value).toEqual([1, 2, 3, 4]);
+      });
+
+      // This spec checks the behavior is identical to `Array.prototype.splice(index, 0, ...)`
+      it('should work with insert', () => {
+        fa.insert(4, c99);
+        expect(fa.value).toEqual([1, 2, 3, 4, 99]);
+      });
+    });
+
+    describe('negative indices', () => {
+      let c1: FormControl = new FormControl(1);
+      let c2: FormControl = new FormControl(2);
+      let c3: FormControl = new FormControl(3);
+      let c4: FormControl = new FormControl(4);
+      let c99: FormControl = new FormControl(99);
+
+      let fa: FormArray;
+
+      beforeEach(() => {
+        fa = new FormArray([c1, c2, c3, c4]);
+      });
+
+      // This spec checks the behavior is identical to `Array.prototype.at(index)`
+      describe('should work with at', () => {
+        it('wrapping from the back between [-length, 0)', () => {
+          expect(fa.at(-1)).toBe(c4);
+          expect(fa.at(-2)).toBe(c3);
+          expect(fa.at(-3)).toBe(c2);
+          expect(fa.at(-4)).toBe(c1);
+        });
+
+        it('becoming undefined when less than -length', () => {
+          expect(fa.at(-5)).toBeUndefined();
+          expect(fa.at(-10)).toBeUndefined();
+        });
+      });
+
+      // This spec checks the behavior is identical to `Array.prototype.splice(index, 1, ...)`
+      describe('should work with setControl', () => {
+        describe('wrapping from the back between [-length, 0)', () => {
+          it('at -1', () => {
+            fa.setControl(-1, c99);
+            expect(fa.value).toEqual([1, 2, 3, 99]);
+          });
+          it('at -2', () => {
+            fa.setControl(-2, c99);
+            expect(fa.value).toEqual([1, 2, 99, 4]);
+          });
+          it('at -3', () => {
+            fa.setControl(-3, c99);
+            expect(fa.value).toEqual([1, 99, 3, 4]);
+          });
+          it('at -4', () => {
+            fa.setControl(-4, c99);
+            expect(fa.value).toEqual([99, 2, 3, 4]);
+          });
+        });
+
+        describe('replacing the first item when less than -length', () => {
+          it('at -5', () => {
+            fa.setControl(-5, c99);
+            expect(fa.value).toEqual([99, 2, 3, 4]);
+          });
+          it('at -10', () => {
+            fa.setControl(-10, c99);
+            expect(fa.value).toEqual([99, 2, 3, 4]);
+          });
+        });
+      });
+
+      // This spec checks the behavior is identical to `Array.prototype.splice(index, 1)`
+      describe('should work with removeAt', () => {
+        describe('wrapping from the back between [-length, 0)', () => {
+          it('at -1', () => {
+            fa.removeAt(-1);
+            expect(fa.value).toEqual([1, 2, 3]);
+          });
+          it('at -2', () => {
+            fa.removeAt(-2);
+            expect(fa.value).toEqual([1, 2, 4]);
+          });
+          it('at -3', () => {
+            fa.removeAt(-3);
+            expect(fa.value).toEqual([1, 3, 4]);
+          });
+          it('at -4', () => {
+            fa.removeAt(-4);
+            expect(fa.value).toEqual([2, 3, 4]);
+          });
+        });
+
+        describe('removing the first item when less than -length', () => {
+          it('at -5', () => {
+            fa.removeAt(-5);
+            expect(fa.value).toEqual([2, 3, 4]);
+          });
+          it('at -10', () => {
+            fa.removeAt(-10);
+            expect(fa.value).toEqual([2, 3, 4]);
+          });
+        });
+      });
+
+      // This spec checks the behavior is identical to `Array.prototype.splice(index, 0, ...)`
+      describe('should work with insert', () => {
+        describe('wrapping from the back between [-length, 0)', () => {
+          it('at -1', () => {
+            fa.insert(-1, c99);
+            expect(fa.value).toEqual([1, 2, 3, 99, 4]);
+          });
+          it('at -2', () => {
+            fa.insert(-2, c99);
+            expect(fa.value).toEqual([1, 2, 99, 3, 4]);
+          });
+          it('at -3', () => {
+            fa.insert(-3, c99);
+            expect(fa.value).toEqual([1, 99, 2, 3, 4]);
+          });
+          it('at -4', () => {
+            fa.insert(-4, c99);
+            expect(fa.value).toEqual([99, 1, 2, 3, 4]);
+          });
+        });
+
+        describe('prepending when less than -length', () => {
+          it('at -5', () => {
+            fa.insert(-5, c99);
+            expect(fa.value).toEqual([99, 1, 2, 3, 4]);
+          });
+          it('at -10', () => {
+            fa.insert(-10, c99);
+            expect(fa.value).toEqual([99, 1, 2, 3, 4]);
+          });
+        });
+
+        describe('can be extended', () => {
+          it('by a simple strongly-typed array', () => {
+            abstract class StringFormArray extends FormArray {
+              override value: string[] = [];
+            }
+          });
+
+          it('by a class that redefines many properties', () => {
+            abstract class OtherTypedFormArray<
+              TControls extends Array<AbstractControl<unknown>>,
+            > extends FormArray {
+              override controls: TControls = {} as TControls;
+              override value: string[] = [];
+            }
+          });
+        });
+      });
+    });
+
+    describe('FormArray.setValue is untracked', () => {
+      @Directive({
+        selector: '[testCva]',
+        providers: [
+          {
+            provide: NG_VALUE_ACCESSOR,
+            useExisting: forwardRef(() => TestCvaDirective),
+            multi: true,
+          },
+        ],
+      })
+      class TestCvaDirective implements ControlValueAccessor {
+        // This is the “dangerous” signal read that must NOT get tracked by the caller of setValue().
+        static cvaSignal = signal(0);
+
+        writeValue(value: unknown): void {
+          // If setValue() is not untracked, the *caller* effect/computed may accidentally track this read.
+          TestCvaDirective.cvaSignal();
+        }
+
+        registerOnChange(_: (value: unknown) => void): void {}
+        registerOnTouched(_: () => void): void {}
+        setDisabledState(_: boolean): void {}
+      }
+
+      @Component({
+        imports: [ReactiveFormsModule, TestCvaDirective],
+        template: `<input testCva [formControl]="control.at(0)" />`,
+      })
+      class HostComponent {
+        control = new FormArray([new FormControl('')]);
+      }
+
+      it('should NOT track signals read inside CVA.writeValue when setValue is called inside an effect', async () => {
+        const fixture = TestBed.createComponent(HostComponent);
+        await fixture.whenStable(); // wires up FormControlDirective + CVA
+
+        const driver = signal('A');
+        let runs = 0;
+
+        // Create the effect inside the Angular injection context.
+        TestBed.runInInjectionContext(() => {
+          effect(() => {
+            runs++;
+
+            // Only dependency we *want* is `driver()`.
+            fixture.componentInstance.control.setValue([driver()]);
+          });
+        });
+
+        await fixture.whenStable();
+        expect(runs).toBe(1);
+
+        // Changing the CVA signal should NOT re-run the effect.
+        TestCvaDirective.cvaSignal.set(1);
+        await fixture.whenStable();
+        expect(runs).toBe(1);
+
+        // Changing the driver signal SHOULD re-run the effect.
+        driver.set('B');
+        await fixture.whenStable();
+        expect(runs).toBe(2);
+      });
+
+      it('should NOT track signals read inside CVA.writeValue when patchValue is called inside an effect', async () => {
+        const fixture = TestBed.createComponent(HostComponent);
+        await fixture.whenStable(); // wires up FormControlDirective + CVA
+
+        const driver = signal('A');
+        let runs = 0;
+
+        // Create the effect inside the Angular injection context.
+        TestBed.runInInjectionContext(() => {
+          effect(() => {
+            runs++;
+
+            // Only dependency we *want* is `driver()`.
+            fixture.componentInstance.control.patchValue([driver()]);
+          });
+        });
+
+        await fixture.whenStable();
+        expect(runs).toBe(1);
+
+        // Changing the CVA signal should NOT re-run the effect.
+        TestCvaDirective.cvaSignal.set(1);
+        await fixture.whenStable();
+        expect(runs).toBe(1);
+
+        // Changing the driver signal SHOULD re-run the effect.
+        driver.set('B');
+        await fixture.whenStable();
+        expect(runs).toBe(2);
+      });
+
+      it('should NOT track signals read inside CVA.writeValue when reset is called inside an effect', async () => {
+        const fixture = TestBed.createComponent(HostComponent);
+        await fixture.whenStable(); // wires up FormControlDirective + CVA
+
+        const driver = signal('A');
+        let runs = 0;
+
+        // Create the effect inside the Angular injection context.
+        TestBed.runInInjectionContext(() => {
+          effect(() => {
+            runs++;
+
+            // Only dependency we *want* is `driver()`.
+            fixture.componentInstance.control.reset([driver()]);
+          });
+        });
+
+        await fixture.whenStable();
+        expect(runs).toBe(1);
+
+        // Changing the CVA signal should NOT re-run the effect.
+        TestCvaDirective.cvaSignal.set(1);
+        await fixture.whenStable();
+        expect(runs).toBe(1);
+
+        // Changing the driver signal SHOULD re-run the effect.
+        driver.set('B');
+        await fixture.whenStable();
+        expect(runs).toBe(2);
+      });
     });
   });
 })();

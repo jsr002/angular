@@ -1,18 +1,27 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-import {injectChangeDetectorRef as render3InjectChangeDetectorRef} from '../render3/view_engine_compatibility';
+import {InternalInjectFlags} from '../di/interface/injector';
+import {TNode, TNodeType} from '../render3/interfaces/node';
+import {isComponentHost} from '../render3/interfaces/type_checks';
+import {DECLARATION_COMPONENT_VIEW, LView} from '../render3/interfaces/view';
+import {getCurrentTNode, getLView} from '../render3/state';
+import {getComponentLViewByIndex} from '../render3/util/view_utils';
+import {ViewRef} from '../render3/view_ref';
+import {registerSpecialProvider} from '../render3/debug/special_providers';
 
 /**
- * Base class for Angular Views, provides change detection functionality.
+ * Base class that provides change detection functionality.
  * A change-detection tree collects all views that are to be checked for changes.
  * Use the methods to add and remove views from the tree, initiate change-detection,
- * and explicitly mark views as _dirty_, meaning that they have changed and need to be rerendered.
+ * and explicitly mark views as _dirty_, meaning that they have changed and need to be re-rendered.
+ *
+ * @see [Using change detection hooks](guide/components/lifecycle)
  *
  * @usageNotes
  *
@@ -23,10 +32,9 @@ import {injectChangeDetectorRef as render3InjectChangeDetectorRef} from '../rend
  *
  * The following example sets the `OnPush` change-detection strategy for a component
  * (`CheckOnce`, rather than the default `CheckAlways`), then forces a second check
- * after an interval. See [live demo](http://plnkr.co/edit/GC512b?p=preview).
+ * after an interval.
  *
- * <code-example path="core/ts/change_detect/change-detection.ts"
- * region="mark-for-check"></code-example>
+ * {@example core/ts/change_detect/change-detection.ts region='mark-for-check'}
  *
  * ### Detach change detector to limit how often check occurs
  *
@@ -36,7 +44,7 @@ import {injectChangeDetectorRef as render3InjectChangeDetectorRef} from '../rend
  * less often than the changes actually occur. To do that, we detach
  * the component's change detector and perform an explicit local check every five seconds.
  *
- * <code-example path="core/ts/change_detect/change-detection.ts" region="detach"></code-example>
+ * {@example core/ts/change_detect/change-detection.ts region='detach'}
  *
  *
  * ### Reattaching a detached component
@@ -46,19 +54,19 @@ import {injectChangeDetectorRef as render3InjectChangeDetectorRef} from '../rend
  * when the `live` property is set to false, and reattaches it when the property
  * becomes true.
  *
- * <code-example path="core/ts/change_detect/change-detection.ts" region="reattach"></code-example>
+ * {@example core/ts/change_detect/change-detection.ts region='reattach'}
  *
  * @publicApi
  */
 export abstract class ChangeDetectorRef {
   /**
-   * When a view uses the {@link ChangeDetectionStrategy#OnPush OnPush} (checkOnce)
+   * When a view uses the {@link ChangeDetectionStrategy#OnPush} (checkOnce)
    * change detection strategy, explicitly marks the view as changed so that
    * it can be checked again.
    *
    * Components are normally marked as dirty (in need of rerendering) when inputs
    * have changed or events have fired in the view. Call this method to ensure that
-   * a component is checked even if these triggers have not occured.
+   * a component is checked even if these triggers have not occurred.
    *
    * <!-- TODO: Add a link to a chapter on OnPush components -->
    *
@@ -80,8 +88,7 @@ export abstract class ChangeDetectorRef {
   abstract detach(): void;
 
   /**
-   * Checks this view and its children. Use in combination with {@link ChangeDetectorRef#detach
-   * detach}
+   * Checks this view and its children. Use in combination with {@link ChangeDetectorRef#detach}
    * to implement local change detection checks.
    *
    * <!-- TODO: Add a link to a chapter on detach/reattach/local digest -->
@@ -89,14 +96,6 @@ export abstract class ChangeDetectorRef {
    *
    */
   abstract detectChanges(): void;
-
-  /**
-   * Checks the change detector and its children, and throws if any changes are detected.
-   *
-   * Use in development mode to verify that running change detection doesn't introduce
-   * other changes.
-   */
-  abstract checkNoChanges(): void;
 
   /**
    * Re-attaches the previously detached view to the change detection tree.
@@ -107,13 +106,49 @@ export abstract class ChangeDetectorRef {
    */
   abstract reattach(): void;
 
-  /** @internal */
-  static __NG_ELEMENT_ID__: () => ChangeDetectorRef = () => SWITCH_CHANGE_DETECTOR_REF_FACTORY();
+  /**
+   * @internal
+   * @nocollapse
+   */
+  static __NG_ELEMENT_ID__: (flags: InternalInjectFlags) => ChangeDetectorRef =
+    injectChangeDetectorRef;
 }
 
+if (typeof ngDevMode === 'undefined' || ngDevMode) {
+  registerSpecialProvider(ChangeDetectorRef);
+}
 
+/** Returns a ChangeDetectorRef (a.k.a. a ViewRef) */
+export function injectChangeDetectorRef(flags: InternalInjectFlags): ChangeDetectorRef {
+  return createViewRef(
+    getCurrentTNode()!,
+    getLView(),
+    (flags & InternalInjectFlags.ForPipe) === InternalInjectFlags.ForPipe,
+  );
+}
 
-export const SWITCH_CHANGE_DETECTOR_REF_FACTORY__POST_R3__ = render3InjectChangeDetectorRef;
-const SWITCH_CHANGE_DETECTOR_REF_FACTORY__PRE_R3__ = (...args: any[]): any => {};
-const SWITCH_CHANGE_DETECTOR_REF_FACTORY: typeof render3InjectChangeDetectorRef =
-    SWITCH_CHANGE_DETECTOR_REF_FACTORY__PRE_R3__;
+/**
+ * Creates a ViewRef and stores it on the injector as ChangeDetectorRef (public alias).
+ *
+ * @param tNode The node that is requesting a ChangeDetectorRef
+ * @param lView The view to which the node belongs
+ * @param isPipe Whether the view is being injected into a pipe.
+ * @returns The ChangeDetectorRef to use
+ */
+function createViewRef(tNode: TNode, lView: LView, isPipe: boolean): ChangeDetectorRef {
+  if (isComponentHost(tNode) && !isPipe) {
+    // The LView represents the location where the component is declared.
+    // Instead we want the LView for the component View and so we need to look it up.
+    const componentView = getComponentLViewByIndex(tNode.index, lView); // look down
+    return new ViewRef(componentView, componentView);
+  } else if (
+    tNode.type &
+    (TNodeType.AnyRNode | TNodeType.AnyContainer | TNodeType.Icu | TNodeType.LetDeclaration)
+  ) {
+    // The LView represents the location where the injection is requested from.
+    // We need to locate the containing LView (in case where the `lView` is an embedded view)
+    const hostComponentView = lView[DECLARATION_COMPONENT_VIEW]; // look up
+    return new ViewRef(hostComponentView, lView);
+  }
+  return null!;
+}

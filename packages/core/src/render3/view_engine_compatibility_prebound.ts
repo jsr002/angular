@@ -1,25 +1,21 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-
-import {ElementRef as ViewEngine_ElementRef} from '../linker/element_ref';
-import {TemplateRef as ViewEngine_TemplateRef} from '../linker/template_ref';
-
+import {createTemplateRef, TemplateRef} from '../linker/template_ref';
 import {TNode} from './interfaces/node';
 import {LView} from './interfaces/view';
-import {createTemplateRef} from './view_engine_compatibility';
-
-
 
 /**
  * Retrieves `TemplateRef` instance from `Injector` when a local reference is placed on the
  * `<ng-template>` element.
+ *
+ * @codeGenApi
  */
-export function templateRefExtractor(tNode: TNode, currentView: LView) {
-  return createTemplateRef(ViewEngine_TemplateRef, ViewEngine_ElementRef, tNode, currentView);
+export function ɵɵtemplateRefExtractor(tNode: TNode, lView: LView): TemplateRef<any> | null {
+  return createTemplateRef(tNode, lView);
 }

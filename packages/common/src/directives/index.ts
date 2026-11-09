@@ -1,16 +1,16 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import {Provider} from '@angular/core';
 
 import {NgClass} from './ng_class';
 import {NgComponentOutlet} from './ng_component_outlet';
-import {NgForOf, NgForOfContext} from './ng_for_of';
+import {NgFor, NgForOf, NgForOfContext} from './ng_for_of';
 import {NgIf, NgIfContext} from './ng_if';
 import {NgPlural, NgPluralCase} from './ng_plural';
 import {NgStyle} from './ng_style';
@@ -20,6 +20,7 @@ import {NgTemplateOutlet} from './ng_template_outlet';
 export {
   NgClass,
   NgComponentOutlet,
+  NgFor,
   NgForOf,
   NgForOfContext,
   NgIf,
@@ -30,10 +31,8 @@ export {
   NgSwitch,
   NgSwitchCase,
   NgSwitchDefault,
-  NgTemplateOutlet
+  NgTemplateOutlet,
 };
-
-
 
 /**
  * A collection of Angular directives that are likely to be used in each and every Angular

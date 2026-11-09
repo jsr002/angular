@@ -1,9 +1,9 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import * as i18n from '../i18n_ast';
@@ -12,16 +12,20 @@ export abstract class Serializer {
   // - The `placeholders` and `placeholderToMessage` properties are irrelevant in the input messages
   // - The `id` contains the message id that the serializer is expected to use
   // - Placeholder names are already map to public names using the provided mapper
-  abstract write(messages: i18n.Message[], locale: string|null): string;
+  abstract write(messages: i18n.Message[], locale: string | null): string;
 
-  abstract load(content: string, url: string):
-      {locale: string | null, i18nNodesByMsgId: {[msgId: string]: i18n.Node[]}};
+  abstract load(
+    content: string,
+    url: string,
+  ): {locale: string | null; i18nNodesByMsgId: {[msgId: string]: i18n.Node[]}};
 
   abstract digest(message: i18n.Message): string;
 
   // Creates a name mapper, see `PlaceholderMapper`
   // Returning `null` means that no name mapping is used.
-  createNameMapper(message: i18n.Message): PlaceholderMapper|null { return null; }
+  createNameMapper(message: i18n.Message): PlaceholderMapper | null {
+    return null;
+  }
 }
 
 /**
@@ -31,9 +35,9 @@ export abstract class Serializer {
  * It should be used for serialization format that put constraints on the placeholder names.
  */
 export interface PlaceholderMapper {
-  toPublicName(internalName: string): string|null;
+  toPublicName(internalName: string): string | null;
 
-  toInternalName(publicName: string): string|null;
+  toInternalName(publicName: string): string | null;
 }
 
 /**
@@ -45,45 +49,59 @@ export class SimplePlaceholderMapper extends i18n.RecurseVisitor implements Plac
   private publicToInternal: {[k: string]: string} = {};
 
   // create a mapping from the message
-  constructor(message: i18n.Message, private mapName: (name: string) => string) {
+  constructor(
+    message: i18n.Message,
+    private mapName: (name: string) => string,
+  ) {
     super();
-    message.nodes.forEach(node => node.visit(this));
+    message.nodes.forEach((node) => node.visit(this));
   }
 
-  toPublicName(internalName: string): string|null {
-    return this.internalToPublic.hasOwnProperty(internalName) ?
-        this.internalToPublic[internalName] :
-        null;
+  toPublicName(internalName: string): string | null {
+    return Object.hasOwn(this.internalToPublic, internalName)
+      ? this.internalToPublic[internalName]
+      : null;
   }
 
-  toInternalName(publicName: string): string|null {
-    return this.publicToInternal.hasOwnProperty(publicName) ? this.publicToInternal[publicName] :
-                                                              null;
+  toInternalName(publicName: string): string | null {
+    return Object.hasOwn(this.publicToInternal, publicName)
+      ? this.publicToInternal[publicName]
+      : null;
   }
 
-  visitText(text: i18n.Text, context?: any): any { return null; }
+  override visitText(text: i18n.Text, context?: any): any {
+    return null;
+  }
 
-  visitTagPlaceholder(ph: i18n.TagPlaceholder, context?: any): any {
+  override visitTagPlaceholder(ph: i18n.TagPlaceholder, context?: any): any {
     this.visitPlaceholderName(ph.startName);
     super.visitTagPlaceholder(ph, context);
     this.visitPlaceholderName(ph.closeName);
   }
 
-  visitPlaceholder(ph: i18n.Placeholder, context?: any): any { this.visitPlaceholderName(ph.name); }
+  override visitPlaceholder(ph: i18n.Placeholder, context?: any): any {
+    this.visitPlaceholderName(ph.name);
+  }
 
-  visitIcuPlaceholder(ph: i18n.IcuPlaceholder, context?: any): any {
+  override visitBlockPlaceholder(ph: i18n.BlockPlaceholder, context?: any): any {
+    this.visitPlaceholderName(ph.startName);
+    super.visitBlockPlaceholder(ph, context);
+    this.visitPlaceholderName(ph.closeName);
+  }
+
+  override visitIcuPlaceholder(ph: i18n.IcuPlaceholder, context?: any): any {
     this.visitPlaceholderName(ph.name);
   }
 
   // XMB placeholders could only contains A-Z, 0-9 and _
   private visitPlaceholderName(internalName: string): void {
-    if (!internalName || this.internalToPublic.hasOwnProperty(internalName)) {
+    if (!internalName || Object.hasOwn(this.internalToPublic, internalName)) {
       return;
     }
 
     let publicName = this.mapName(internalName);
 
-    if (this.publicToInternal.hasOwnProperty(publicName)) {
+    if (Object.hasOwn(this.publicToInternal, publicName)) {
       // Create a new XMB when it has already been used
       const nextId = this.publicToNextId[publicName];
       this.publicToNextId[publicName] = nextId + 1;

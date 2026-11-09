@@ -1,363 +1,579 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-import {discardPeriodicTasks, fakeAsync, flush, flushMicrotasks, tick} from '@angular/core/testing';
-import {Log, beforeEach, describe, inject, it} from '@angular/core/testing/src/testing_internal';
-import {expect} from '@angular/platform-browser/testing/src/matchers';
-import {fixmeIvy} from '@angular/private/testing';
-
-import {Parser} from '../../compiler/src/expression_parser/parser';
-
+import {discardPeriodicTasks, fakeAsync, flush, flushMicrotasks, inject, tick} from '../testing';
+import {Log} from '../testing/src/testing_internal';
+import {EventManager} from '@angular/platform-browser';
 
 const resolvedPromise = Promise.resolve(null);
-const ProxyZoneSpec: {assertPresent: () => void} = (Zone as any)['ProxyZoneSpec'];
+const ProxyZoneSpec: {new (): ZoneSpec; assertPresent: () => void} = (Zone as any)['ProxyZoneSpec'];
+const proxyZone = Zone.root.fork(new ProxyZoneSpec());
+const withProxyZone = <T extends Function>(fn: T): T => {
+  return function (this: unknown, ...args: unknown[]) {
+    return proxyZone.run(fn, this, args);
+  } as unknown as T;
+};
 
-{
-  describe('fake async', () => {
-    it('should run synchronous code', () => {
+describe('fake async', () => {
+  it(
+    'should run synchronous code',
+    withProxyZone(() => {
       let ran = false;
-      fakeAsync(() => { ran = true; })();
+      fakeAsync(() => {
+        ran = true;
+      })();
 
       expect(ran).toEqual(true);
-    });
+    }),
+  );
 
-    it('should pass arguments to the wrapped function', () => {
-      fakeAsync((foo: any /** TODO #9100 */, bar: any /** TODO #9100 */) => {
+  it(
+    'should pass arguments to the wrapped function',
+    withProxyZone(() => {
+      fakeAsync((foo: string, bar: string) => {
         expect(foo).toEqual('foo');
         expect(bar).toEqual('bar');
       })('foo', 'bar');
-    });
+    }),
+  );
 
-    fixmeIvy('unknown').it(
-        'should work with inject()', fakeAsync(inject([Parser], (parser: any /** TODO #9100 */) => {
-          expect(parser).toBeAnInstanceOf(Parser);
-        })));
+  it(
+    'should work with inject()',
+    withProxyZone(
+      fakeAsync(
+        inject([EventManager], (eventManager: EventManager) => {
+          expect(eventManager).toBeInstanceOf(EventManager);
+        }),
+      ),
+    ),
+  );
 
-    it('should throw on nested calls', () => {
+  it(
+    'should throw on nested calls',
+    withProxyZone(() => {
       expect(() => {
-        fakeAsync(() => { fakeAsync((): any /** TODO #9100 */ => null)(); })();
+        fakeAsync(() => {
+          fakeAsync((): null => null)();
+        })();
       }).toThrowError('fakeAsync() calls can not be nested');
-    });
+    }),
+  );
 
-    it('should flush microtasks before returning', () => {
+  it(
+    'should flush microtasks before returning',
+    withProxyZone(() => {
       let thenRan = false;
 
-      fakeAsync(() => { resolvedPromise.then(_ => { thenRan = true; }); })();
+      fakeAsync(() => {
+        resolvedPromise.then((_) => {
+          thenRan = true;
+        });
+      })();
 
       expect(thenRan).toEqual(true);
-    });
+    }),
+  );
 
+  it(
+    'should propagate the return value',
+    withProxyZone(() => {
+      expect(fakeAsync(() => 'foo')()).toEqual('foo');
+    }),
+  );
 
-    it('should propagate the return value',
-       () => { expect(fakeAsync(() => 'foo')()).toEqual('foo'); });
+  describe('Promise', () => {
+    it(
+      'should run asynchronous code',
+      withProxyZone(
+        fakeAsync(() => {
+          let thenRan = false;
+          resolvedPromise.then((_) => {
+            thenRan = true;
+          });
 
-    describe('Promise', () => {
-      it('should run asynchronous code', fakeAsync(() => {
-           let thenRan = false;
-           resolvedPromise.then((_) => { thenRan = true; });
+          expect(thenRan).toEqual(false);
 
-           expect(thenRan).toEqual(false);
+          flushMicrotasks();
+          expect(thenRan).toEqual(true);
+        }),
+      ),
+    );
 
-           flushMicrotasks();
-           expect(thenRan).toEqual(true);
-         }));
+    it(
+      'should run chained thens',
+      withProxyZone(
+        fakeAsync(() => {
+          const log = new Log<number>();
 
-      it('should run chained thens', fakeAsync(() => {
-           const log = new Log();
+          resolvedPromise.then((_) => log.add(1)).then((_) => log.add(2));
 
-           resolvedPromise.then((_) => log.add(1)).then((_) => log.add(2));
+          expect(log.result()).toEqual('');
 
-           expect(log.result()).toEqual('');
+          flushMicrotasks();
+          expect(log.result()).toEqual('1; 2');
+        }),
+      ),
+    );
 
-           flushMicrotasks();
-           expect(log.result()).toEqual('1; 2');
-         }));
+    it(
+      'should run Promise created in Promise',
+      withProxyZone(
+        fakeAsync(() => {
+          const log = new Log<number>();
 
-      it('should run Promise created in Promise', fakeAsync(() => {
-           const log = new Log();
+          resolvedPromise.then((_) => {
+            log.add(1);
+            resolvedPromise.then((_) => log.add(2));
+          });
 
-           resolvedPromise.then((_) => {
-             log.add(1);
-             resolvedPromise.then((_) => log.add(2));
-           });
+          expect(log.result()).toEqual('');
 
-           expect(log.result()).toEqual('');
+          flushMicrotasks();
+          expect(log.result()).toEqual('1; 2');
+        }),
+      ),
+    );
 
-           flushMicrotasks();
-           expect(log.result()).toEqual('1; 2');
-         }));
-
-      it('should complain if the test throws an exception during async calls', () => {
+    it(
+      'should complain if the test throws an exception during async calls',
+      withProxyZone(() => {
         expect(() => {
           fakeAsync(() => {
-            resolvedPromise.then((_) => { throw new Error('async'); });
+            resolvedPromise.then((_) => {
+              throw new Error('async');
+            });
             flushMicrotasks();
           })();
-        }).toThrowError(/Uncaught \(in promise\): Error: async/);
-      });
+        }).toThrow();
+      }),
+    );
 
-      it('should complain if a test throws an exception', () => {
-        expect(() => { fakeAsync(() => { throw new Error('sync'); })(); }).toThrowError('sync');
-      });
-
-    });
-
-    describe('timers', () => {
-      it('should run queued zero duration timer on zero tick', fakeAsync(() => {
-           let ran = false;
-           setTimeout(() => { ran = true; }, 0);
-
-           expect(ran).toEqual(false);
-
-           tick();
-           expect(ran).toEqual(true);
-         }));
-
-
-      it('should run queued timer after sufficient clock ticks', fakeAsync(() => {
-           let ran = false;
-           setTimeout(() => { ran = true; }, 10);
-
-           tick(6);
-           expect(ran).toEqual(false);
-
-           tick(6);
-           expect(ran).toEqual(true);
-         }));
-
-      it('should run queued timer only once', fakeAsync(() => {
-           let cycles = 0;
-           setTimeout(() => { cycles++; }, 10);
-
-           tick(10);
-           expect(cycles).toEqual(1);
-
-           tick(10);
-           expect(cycles).toEqual(1);
-
-           tick(10);
-           expect(cycles).toEqual(1);
-         }));
-
-      it('should not run cancelled timer', fakeAsync(() => {
-           let ran = false;
-           const id = setTimeout(() => { ran = true; }, 10);
-           clearTimeout(id);
-
-           tick(10);
-           expect(ran).toEqual(false);
-         }));
-
-      it('should throw an error on dangling timers', () => {
+    it(
+      'should complain if a test throws an exception',
+      withProxyZone(() => {
         expect(() => {
-          fakeAsync(() => { setTimeout(() => {}, 10); })();
-        }).toThrowError('1 timer(s) still in the queue.');
-      });
+          fakeAsync(() => {
+            throw new Error('sync');
+          })();
+        }).toThrowError('sync');
+      }),
+    );
+  });
 
-      it('should throw an error on dangling periodic timers', () => {
-        expect(() => {
-          fakeAsync(() => { setInterval(() => {}, 10); })();
-        }).toThrowError('1 periodic timer(s) still in the queue.');
-      });
+  describe('timers', () => {
+    it(
+      'should run queued zero duration timer on zero tick',
+      withProxyZone(
+        fakeAsync(() => {
+          let ran = false;
+          setTimeout(() => {
+            ran = true;
+          }, 0);
 
-      it('should run periodic timers', fakeAsync(() => {
-           let cycles = 0;
-           const id = setInterval(() => { cycles++; }, 10);
+          expect(ran).toEqual(false);
 
-           tick(10);
-           expect(cycles).toEqual(1);
-
-           tick(10);
-           expect(cycles).toEqual(2);
-
-           tick(10);
-           expect(cycles).toEqual(3);
-           clearInterval(id);
-         }));
-
-      it('should not run cancelled periodic timer', fakeAsync(() => {
-           let ran = false;
-           const id = setInterval(() => { ran = true; }, 10);
-           clearInterval(id);
-
-           tick(10);
-           expect(ran).toEqual(false);
-         }));
-
-      it('should be able to cancel periodic timers from a callback', fakeAsync(() => {
-           let cycles = 0;
-           let id: any /** TODO #9100 */;
-
-           id = setInterval(() => {
-             cycles++;
-             clearInterval(id);
-           }, 10);
-
-           tick(10);
-           expect(cycles).toEqual(1);
-
-           tick(10);
-           expect(cycles).toEqual(1);
-         }));
-
-      it('should clear periodic timers', fakeAsync(() => {
-           let cycles = 0;
-           const id = setInterval(() => { cycles++; }, 10);
-
-           tick(10);
-           expect(cycles).toEqual(1);
-
-           discardPeriodicTasks();
-
-           // Tick once to clear out the timer which already started.
-           tick(10);
-           expect(cycles).toEqual(2);
-
-           tick(10);
-           // Nothing should change
-           expect(cycles).toEqual(2);
-         }));
-
-      it('should process microtasks before timers', fakeAsync(() => {
-           const log = new Log();
-
-           resolvedPromise.then((_) => log.add('microtask'));
-
-           setTimeout(() => log.add('timer'), 9);
-
-           const id = setInterval(() => log.add('periodic timer'), 10);
-
-           expect(log.result()).toEqual('');
-
-           tick(10);
-           expect(log.result()).toEqual('microtask; timer; periodic timer');
-           clearInterval(id);
-         }));
-
-      it('should process micro-tasks created in timers before next timers', fakeAsync(() => {
-           const log = new Log();
-
-           resolvedPromise.then((_) => log.add('microtask'));
-
-           setTimeout(() => {
-             log.add('timer');
-             resolvedPromise.then((_) => log.add('t microtask'));
-           }, 9);
-
-           const id = setInterval(() => {
-             log.add('periodic timer');
-             resolvedPromise.then((_) => log.add('pt microtask'));
-           }, 10);
-
-           tick(10);
-           expect(log.result())
-               .toEqual('microtask; timer; t microtask; periodic timer; pt microtask');
-
-           tick(10);
-           expect(log.result())
-               .toEqual(
-                   'microtask; timer; t microtask; periodic timer; pt microtask; periodic timer; pt microtask');
-           clearInterval(id);
-         }));
-
-      it('should flush tasks', fakeAsync(() => {
-           let ran = false;
-           setTimeout(() => { ran = true; }, 10);
-
-           flush();
-           expect(ran).toEqual(true);
-         }));
-
-      it('should flush multiple tasks', fakeAsync(() => {
-           let ran = false;
-           let ran2 = false;
-           setTimeout(() => { ran = true; }, 10);
-           setTimeout(() => { ran2 = true; }, 30);
-
-           let elapsed = flush();
-
-           expect(ran).toEqual(true);
-           expect(ran2).toEqual(true);
-           expect(elapsed).toEqual(30);
-         }));
-
-      it('should move periodic tasks', fakeAsync(() => {
-           let ran = false;
-           let count = 0;
-           setInterval(() => { count++; }, 10);
-           setTimeout(() => { ran = true; }, 35);
-
-           let elapsed = flush();
-
-           expect(count).toEqual(3);
-           expect(ran).toEqual(true);
-           expect(elapsed).toEqual(35);
-
-           discardPeriodicTasks();
-         }));
-    });
-
-    describe('outside of the fakeAsync zone', () => {
-      it('calling flushMicrotasks should throw', () => {
-        expect(() => {
-          flushMicrotasks();
-        }).toThrowError('The code should be running in the fakeAsync zone to call this function');
-      });
-
-      it('calling tick should throw', () => {
-        expect(() => {
           tick();
-        }).toThrowError('The code should be running in the fakeAsync zone to call this function');
-      });
+          expect(ran).toEqual(true);
+        }),
+      ),
+    );
 
-      it('calling flush should throw', () => {
-        expect(() => {
+    it(
+      'should run queued timer after sufficient clock ticks',
+      withProxyZone(
+        fakeAsync(() => {
+          let ran = false;
+          setTimeout(() => {
+            ran = true;
+          }, 10);
+
+          tick(6);
+          expect(ran).toEqual(false);
+
+          tick(6);
+          expect(ran).toEqual(true);
+        }),
+      ),
+    );
+
+    it(
+      'should run new macro tasks created by timer callback',
+      withProxyZone(
+        fakeAsync(() => {
+          function nestedTimer(callback: () => any): void {
+            setTimeout(() => setTimeout(() => callback()));
+          }
+          const callback = jasmine.createSpy('callback');
+          nestedTimer(callback);
+          expect(callback).not.toHaveBeenCalled();
+          tick(0);
+          expect(callback).toHaveBeenCalled();
+        }),
+      ),
+    );
+
+    it(
+      'should not queue nested timer on tick with processNewMacroTasksSynchronously=false',
+      withProxyZone(
+        fakeAsync(() => {
+          function nestedTimer(callback: () => any): void {
+            setTimeout(() => setTimeout(() => callback()));
+          }
+          const callback = jasmine.createSpy('callback');
+          nestedTimer(callback);
+          expect(callback).not.toHaveBeenCalled();
+          tick(0, {processNewMacroTasksSynchronously: false});
+          expect(callback).not.toHaveBeenCalled();
           flush();
-        }).toThrowError('The code should be running in the fakeAsync zone to call this function');
-      });
+          expect(callback).toHaveBeenCalled();
+        }),
+      ),
+    );
 
-      it('calling discardPeriodicTasks should throw', () => {
+    it(
+      'should run queued timer only once',
+      withProxyZone(
+        fakeAsync(() => {
+          let cycles = 0;
+          setTimeout(() => {
+            cycles++;
+          }, 10);
+
+          tick(10);
+          expect(cycles).toEqual(1);
+
+          tick(10);
+          expect(cycles).toEqual(1);
+
+          tick(10);
+          expect(cycles).toEqual(1);
+        }),
+      ),
+    );
+
+    it(
+      'should not run cancelled timer',
+      withProxyZone(
+        fakeAsync(() => {
+          let ran = false;
+          const id = setTimeout(() => {
+            ran = true;
+          }, 10);
+          clearTimeout(id);
+
+          tick(10);
+          expect(ran).toEqual(false);
+        }),
+      ),
+    );
+
+    it(
+      'should throw an error on dangling timers',
+      withProxyZone(() => {
         expect(() => {
+          fakeAsync(
+            () => {
+              setTimeout(() => {}, 10);
+            },
+            {flush: false},
+          )();
+        }).toThrowError('1 timer(s) still in the queue.');
+      }),
+    );
+
+    it(
+      'should throw an error on dangling periodic timers',
+      withProxyZone(() => {
+        expect(() => {
+          fakeAsync(
+            () => {
+              setInterval(() => {}, 10);
+            },
+            {flush: false},
+          )();
+        }).toThrowError('1 periodic timer(s) still in the queue.');
+      }),
+    );
+
+    it(
+      'should run periodic timers',
+      withProxyZone(
+        fakeAsync(() => {
+          let cycles = 0;
+          const id = setInterval(() => {
+            cycles++;
+          }, 10);
+
+          tick(10);
+          expect(cycles).toEqual(1);
+
+          tick(10);
+          expect(cycles).toEqual(2);
+
+          tick(10);
+          expect(cycles).toEqual(3);
+          clearInterval(id);
+        }),
+      ),
+    );
+
+    it(
+      'should not run cancelled periodic timer',
+      withProxyZone(
+        fakeAsync(() => {
+          let ran = false;
+          const id = setInterval(() => {
+            ran = true;
+          }, 10);
+          clearInterval(id);
+
+          tick(10);
+          expect(ran).toEqual(false);
+        }),
+      ),
+    );
+
+    it(
+      'should be able to cancel periodic timers from a callback',
+      withProxyZone(
+        fakeAsync(() => {
+          let cycles = 0;
+          const id = setInterval(() => {
+            cycles++;
+            clearInterval(id);
+          }, 10);
+
+          tick(10);
+          expect(cycles).toEqual(1);
+
+          tick(10);
+          expect(cycles).toEqual(1);
+        }),
+      ),
+    );
+
+    it(
+      'should clear periodic timers',
+      withProxyZone(
+        fakeAsync(() => {
+          let cycles = 0;
+          setInterval(() => {
+            cycles++;
+          }, 10);
+
+          tick(10);
+          expect(cycles).toEqual(1);
+
           discardPeriodicTasks();
-        }).toThrowError('The code should be running in the fakeAsync zone to call this function');
-      });
+
+          // Tick once to clear out the timer which already started.
+          tick(10);
+          expect(cycles).toEqual(2);
+
+          tick(10);
+          // Nothing should change
+          expect(cycles).toEqual(2);
+        }),
+      ),
+    );
+
+    it(
+      'should process microtasks before timers',
+      withProxyZone(
+        fakeAsync(() => {
+          const log = new Log();
+
+          resolvedPromise.then((_) => log.add('microtask'));
+
+          setTimeout(() => log.add('timer'), 9);
+
+          const id = setInterval(() => log.add('periodic timer'), 10);
+
+          expect(log.result()).toEqual('');
+
+          tick(10);
+          expect(log.result()).toEqual('microtask; timer; periodic timer');
+          clearInterval(id);
+        }),
+      ),
+    );
+
+    it(
+      'should process micro-tasks created in timers before next timers',
+      withProxyZone(
+        fakeAsync(() => {
+          const log = new Log();
+
+          resolvedPromise.then((_) => log.add('microtask'));
+
+          setTimeout(() => {
+            log.add('timer');
+            resolvedPromise.then((_) => log.add('t microtask'));
+          }, 9);
+
+          const id = setInterval(() => {
+            log.add('periodic timer');
+            resolvedPromise.then((_) => log.add('pt microtask'));
+          }, 10);
+
+          tick(10);
+          expect(log.result()).toEqual(
+            'microtask; timer; t microtask; periodic timer; pt microtask',
+          );
+
+          tick(10);
+          expect(log.result()).toEqual(
+            'microtask; timer; t microtask; periodic timer; pt microtask; periodic timer; pt microtask',
+          );
+          clearInterval(id);
+        }),
+      ),
+    );
+
+    it(
+      'should flush tasks',
+      withProxyZone(
+        fakeAsync(() => {
+          let ran = false;
+          setTimeout(() => {
+            ran = true;
+          }, 10);
+
+          flush();
+          expect(ran).toEqual(true);
+        }),
+      ),
+    );
+
+    it(
+      'should flush multiple tasks',
+      withProxyZone(
+        fakeAsync(() => {
+          let ran = false;
+          let ran2 = false;
+          setTimeout(() => {
+            ran = true;
+          }, 10);
+          setTimeout(() => {
+            ran2 = true;
+          }, 30);
+
+          let elapsed = flush();
+
+          expect(ran).toEqual(true);
+          expect(ran2).toEqual(true);
+          expect(elapsed).toEqual(30);
+        }),
+      ),
+    );
+
+    it(
+      'should move periodic tasks',
+      withProxyZone(
+        fakeAsync(() => {
+          let ran = false;
+          let count = 0;
+          setInterval(() => {
+            count++;
+          }, 10);
+          setTimeout(() => {
+            ran = true;
+          }, 35);
+
+          let elapsed = flush();
+
+          expect(count).toEqual(3);
+          expect(ran).toEqual(true);
+          expect(elapsed).toEqual(35);
+
+          discardPeriodicTasks();
+        }),
+      ),
+    );
+  });
+
+  describe('outside of the fakeAsync zone', () => {
+    it('calling flushMicrotasks should throw', () => {
+      expect(() => {
+        flushMicrotasks();
+      }).toThrowError('The code should be running in the fakeAsync zone to call this function');
     });
 
-    describe('only one `fakeAsync` zone per test', () => {
-      let zoneInBeforeEach: Zone;
-      let zoneInTest1: Zone;
-      beforeEach(fakeAsync(() => { zoneInBeforeEach = Zone.current; }));
+    it('calling tick should throw', () => {
+      expect(() => {
+        tick();
+      }).toThrowError('The code should be running in the fakeAsync zone to call this function');
+    });
 
-      it('should use the same zone as in beforeEach', fakeAsync(() => {
-           zoneInTest1 = Zone.current;
-           expect(zoneInTest1).toBe(zoneInBeforeEach);
-         }));
+    it('calling flush should throw', () => {
+      expect(() => {
+        flush();
+      }).toThrowError('The code should be running in the fakeAsync zone to call this function');
+    });
+
+    it('calling discardPeriodicTasks should throw', () => {
+      expect(() => {
+        discardPeriodicTasks();
+      }).toThrowError('The code should be running in the fakeAsync zone to call this function');
     });
   });
 
-  describe('ProxyZone', () => {
-    beforeEach(() => { ProxyZoneSpec.assertPresent(); });
+  describe('only one `fakeAsync` zone per test', () => {
+    let zoneInBeforeEach: Zone;
+    let zoneInTest1: Zone;
+    beforeEach(
+      withProxyZone(
+        fakeAsync(() => {
+          zoneInBeforeEach = Zone.current;
+        }),
+      ),
+    );
 
-    afterEach(() => { ProxyZoneSpec.assertPresent(); });
+    it(
+      'should use the same zone as in beforeEach',
+      withProxyZone(
+        fakeAsync(() => {
+          zoneInTest1 = Zone.current;
+          expect(zoneInTest1).toBe(zoneInBeforeEach);
+        }),
+      ),
+    );
+  });
+});
 
-    it('should allow fakeAsync zone to retroactively set a zoneSpec outside of fakeAsync', () => {
+describe('ProxyZone', () => {
+  beforeEach(
+    withProxyZone(() => {
+      ProxyZoneSpec.assertPresent();
+    }),
+  );
+
+  afterEach(
+    withProxyZone(() => {
+      ProxyZoneSpec.assertPresent();
+    }),
+  );
+
+  it(
+    'should allow fakeAsync zone to retroactively set a zoneSpec outside of fakeAsync',
+    withProxyZone(() => {
       ProxyZoneSpec.assertPresent();
       let state: string = 'not run';
       const testZone = Zone.current.fork({name: 'test-zone'});
-      (fakeAsync(() => {
+      fakeAsync(() => {
         testZone.run(() => {
-          Promise.resolve('works').then((v) => state = v);
+          Promise.resolve('works').then((v) => (state = v));
           expect(state).toEqual('not run');
           flushMicrotasks();
           expect(state).toEqual('works');
         });
-      }))();
+      })();
       expect(state).toEqual('works');
-    });
-  });
-}
+    }),
+  );
+});

@@ -1,17 +1,15 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-import {ClassSansProvider, ConstructorProvider, ConstructorSansProvider, ExistingProvider, ExistingSansProvider, FactoryProvider, FactorySansProvider, StaticClassProvider, StaticClassSansProvider, ValueProvider, ValueSansProvider} from '../di/provider';
-import {ReflectionCapabilities} from '../reflection/reflection_capabilities';
-import {Type} from '../type';
-import {makeDecorator, makeParamDecorator} from '../util/decorators';
-import {EMPTY_ARRAY} from '../view/util';
+import {makeParamDecorator} from '../util/decorators';
 
+import {attachInjectFlag} from './injector_compatibility';
+import {DecoratorFlags, InternalInjectFlags} from './interface/injector';
 
 /**
  * Type of the Inject decorator / constructor function.
@@ -20,21 +18,28 @@ import {EMPTY_ARRAY} from '../view/util';
  */
 export interface InjectDecorator {
   /**
-   * A constructor parameter decorator that specifies a
-   * custom provider of a dependency.
+   * Warning: String tokens are not recommended.
    *
-   * @see ["Dependency Injection Guide"](guide/dependency-injection).
+   * Use an InjectionToken or a class as a token instead.
+   */
+  (token: string): any;
+  new (token: string): Inject;
+
+  /**
+   * Parameter decorator on a dependency parameter of a class constructor
+   * that specifies a custom provider of the dependency.
    *
    * @usageNotes
    * The following example shows a class constructor that specifies a
    * custom provider of a dependency using the parameter decorator.
    *
-   * {@example core/di/ts/metadata_spec.ts region='Inject'}
-   *
-   * When `@Inject()` is not present, the `Injector` uses the type annotation of the
+   * When `@Inject()` is not present, the injector uses the type annotation of the
    * parameter as the provider.
    *
    * {@example core/di/ts/metadata_spec.ts region='InjectWithoutDecorator'}
+   *
+   * @see [Dependency Injection Guide](guide/di)
+   *
    */
   (token: any): any;
   new (token: any): Inject;
@@ -47,7 +52,7 @@ export interface InjectDecorator {
  */
 export interface Inject {
   /**
-   * Injector token that maps to the dependency to be injected.
+   * A DI token that maps to the dependency to be injected.
    */
   token: any;
 }
@@ -58,8 +63,12 @@ export interface Inject {
  * @Annotation
  * @publicApi
  */
-export const Inject: InjectDecorator = makeParamDecorator('Inject', (token: any) => ({token}));
-
+export const Inject: InjectDecorator = attachInjectFlag(
+  // Disable tslint because `DecoratorFlags` is a const enum which gets inlined.
+  makeParamDecorator('Inject', (token: any) => ({token})),
+  // tslint:disable-next-line: no-toplevel-property-access
+  DecoratorFlags.Inject,
+);
 
 /**
  * Type of the Optional decorator / constructor function.
@@ -68,14 +77,20 @@ export const Inject: InjectDecorator = makeParamDecorator('Inject', (token: any)
  */
 export interface OptionalDecorator {
   /**
-   * A constructor parameter decorator that marks a dependency as optional.
+   * Parameter decorator to be used on constructor parameters,
+   * which marks the parameter as being an optional dependency.
+   * The DI framework provides `null` if the dependency is not found.
    *
-   * The DI framework provides null if the dependency is not found.
-   * For example, the following code allows the possibility of a null result:
+   * Can be used together with other parameter decorators
+   * that modify how dependency injection operates.
+   *
+   * @usageNotes
+   *
+   * The following code allows the possibility of a `null` result:
    *
    * {@example core/di/ts/metadata_spec.ts region='Optional'}
    *
-   * @see ["Dependency Injection Guide"](guide/dependency-injection).
+   * @see [Dependency Injection Guide](guide/di)
    */
   (): any;
   new (): Optional;
@@ -94,7 +109,10 @@ export interface Optional {}
  * @Annotation
  * @publicApi
  */
-export const Optional: OptionalDecorator = makeParamDecorator('Optional');
+export const Optional: OptionalDecorator =
+  // Disable tslint because `InternalInjectFlags` is a const enum which gets inlined.
+  // tslint:disable-next-line: no-toplevel-property-access
+  attachInjectFlag(makeParamDecorator('Optional'), InternalInjectFlags.Optional);
 
 /**
  * Type of the Self decorator / constructor function.
@@ -103,8 +121,13 @@ export const Optional: OptionalDecorator = makeParamDecorator('Optional');
  */
 export interface SelfDecorator {
   /**
-   * A constructor parameter decorator that tells the DI framework
-   * to retrieve a dependency only from the local injector.
+   * Parameter decorator to be used on constructor parameters,
+   * which tells the DI framework to start dependency resolution from the local injector.
+   *
+   * Resolution works upward through the injector hierarchy, so the children
+   * of this class must configure their own providers or be prepared for a `null` result.
+   *
+   * @usageNotes
    *
    * In the following example, the dependency can be resolved
    * by the local injector when instantiating the class itself, but not
@@ -112,8 +135,8 @@ export interface SelfDecorator {
    *
    * {@example core/di/ts/metadata_spec.ts region='Self'}
    *
-   * @see ["Dependency Injection Guide"](guide/dependency-injection).
-   *
+   * @see {@link SkipSelf}
+   * @see {@link Optional}
    *
    */
   (): any;
@@ -133,26 +156,33 @@ export interface Self {}
  * @Annotation
  * @publicApi
  */
-export const Self: SelfDecorator = makeParamDecorator('Self');
-
+export const Self: SelfDecorator =
+  // Disable tslint because `InternalInjectFlags` is a const enum which gets inlined.
+  // tslint:disable-next-line: no-toplevel-property-access
+  attachInjectFlag(makeParamDecorator('Self'), InternalInjectFlags.Self);
 
 /**
- * Type of the SkipSelf decorator / constructor function.
+ * Type of the `SkipSelf` decorator / constructor function.
  *
  * @publicApi
  */
 export interface SkipSelfDecorator {
   /**
-   * A constructor parameter decorator that tells the DI framework
-   * that dependency resolution should start from the parent injector.
+   * Parameter decorator to be used on constructor parameters,
+   * which tells the DI framework to start dependency resolution from the parent injector.
+   * Resolution works upward through the injector hierarchy, so the local injector
+   * is not checked for a provider.
+   *
+   * @usageNotes
    *
    * In the following example, the dependency can be resolved when
    * instantiating a child, but not when instantiating the class itself.
    *
    * {@example core/di/ts/metadata_spec.ts region='SkipSelf'}
    *
-   * @see ["Dependency Injection Guide"](guide/dependency-injection).
-   *
+   * @see [Dependency Injection guide](guide/di/hierarchical-dependency-injection#skipself).
+   * @see {@link Self}
+   * @see {@link Optional}
    *
    */
   (): any;
@@ -160,36 +190,42 @@ export interface SkipSelfDecorator {
 }
 
 /**
- * Type of the SkipSelf metadata.
+ * Type of the `SkipSelf` metadata.
  *
  * @publicApi
  */
 export interface SkipSelf {}
 
 /**
- * SkipSelf decorator and metadata.
+ * `SkipSelf` decorator and metadata.
  *
  * @Annotation
  * @publicApi
  */
-export const SkipSelf: SkipSelfDecorator = makeParamDecorator('SkipSelf');
+export const SkipSelf: SkipSelfDecorator =
+  // Disable tslint because `InternalInjectFlags` is a const enum which gets inlined.
+  // tslint:disable-next-line: no-toplevel-property-access
+  attachInjectFlag(makeParamDecorator('SkipSelf'), InternalInjectFlags.SkipSelf);
 
 /**
- * Type of the Host decorator / constructor function.
+ * Type of the `Host` decorator / constructor function.
  *
  * @publicApi
  */
 export interface HostDecorator {
   /**
-   * A constructor parameter decorator that tells the DI framework
-   * to retrieve a dependency from any injector until
-   * reaching the host element of the current component.
-   *
-   * @see ["Dependency Injection Guide"](guide/dependency-injection).
+   * Parameter decorator on a view-provider parameter of a class constructor
+   * that tells the DI framework to resolve the view by checking injectors of child
+   * elements, and stop when reaching the host element of the current component.
    *
    * @usageNotes
    *
+   * The following shows use with the `@Optional` decorator, and allows for a `null` result.
+   *
    * {@example core/di/ts/metadata_spec.ts region='Host'}
+   *
+   * For an extended example, see ["Dependency Injection
+   * Guide"](guide/di/hierarchical-dependency-injection#optional).
    */
   (): any;
   new (): Host;
@@ -208,4 +244,7 @@ export interface Host {}
  * @Annotation
  * @publicApi
  */
-export const Host: HostDecorator = makeParamDecorator('Host');
+export const Host: HostDecorator =
+  // Disable tslint because `InternalInjectFlags` is a const enum which gets inlined.
+  // tslint:disable-next-line: no-toplevel-property-access
+  attachInjectFlag(makeParamDecorator('Host'), InternalInjectFlags.Host);

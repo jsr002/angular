@@ -1,38 +1,47 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 // #docregion Component
-import {Component, Directive, Input, ViewChild} from '@angular/core';
+import {Component, Directive, input, signal, ViewChild} from '@angular/core';
 
-@Directive({selector: 'pane'})
+@Directive({
+  selector: 'pane',
+})
 export class Pane {
-  // TODO(issue/24571): remove '!'.
-  @Input() id !: string;
+  id = input.required<string>();
 }
 
 @Component({
   selector: 'example-app',
+  imports: [Pane],
   template: `
-    <pane id="1" *ngIf="shouldShow"></pane>
-    <pane id="2" *ngIf="!shouldShow"></pane>
-    
+    @if (shouldShow()) {
+      <pane id="1" />
+    } @else {
+      <pane id="2" />
+    }
+
     <button (click)="toggle()">Toggle</button>
-       
-    <div>Selected: {{selectedPane}}</div> 
+
+    <div>Selected: {{ selectedPane() }}</div>
   `,
 })
 export class ViewChildComp {
   @ViewChild(Pane)
   set pane(v: Pane) {
-    setTimeout(() => { this.selectedPane = v.id; }, 0);
+    setTimeout(() => {
+      this.selectedPane.set(v.id());
+    }, 0);
   }
-  selectedPane: string = '';
-  shouldShow = true;
-  toggle() { this.shouldShow = !this.shouldShow; }
+  selectedPane = signal('');
+  shouldShow = signal(true);
+  toggle() {
+    this.shouldShow.update((shouldShow) => !shouldShow);
+  }
 }
 // #enddocregion

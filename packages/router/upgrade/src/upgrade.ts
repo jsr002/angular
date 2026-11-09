@@ -1,23 +1,31 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import {Location} from '@angular/common';
-import {APP_BOOTSTRAP_LISTENER, ComponentRef, InjectionToken} from '@angular/core';
-import {Router} from '@angular/router';
+import {APP_BOOTSTRAP_LISTENER, ComponentRef, inject} from '@angular/core';
+import {Router, ɵRestoredState as RestoredState} from '../../index';
 import {UpgradeModule} from '@angular/upgrade/static';
 
 /**
- * @description
+ * Creates an initializer that sets up `ngRoute` integration
+ * along with setting up the Angular router.
  *
- * Creates an initializer that in addition to setting up the Angular
- * router sets up the ngRoute integration.
+ * @usageNotes
  *
+ * For standalone applications:
+ * ```ts
+ * export const appConfig: ApplicationConfig = {
+ *   providers: [RouterUpgradeInitializer],
+ * };
  * ```
+ *
+ * For NgModule based applications:
+ * ```ts
  * @NgModule({
  *  imports: [
  *   RouterModule.forRoot(SOME_ROUTES),
@@ -37,28 +45,36 @@ import {UpgradeModule} from '@angular/upgrade/static';
 export const RouterUpgradeInitializer = {
   provide: APP_BOOTSTRAP_LISTENER,
   multi: true,
-  useFactory: locationSyncBootstrapListener as(ngUpgrade: UpgradeModule) => () => void,
-  deps: [UpgradeModule]
+  useFactory: locationSyncBootstrapListener as () => () => void,
 };
 
 /**
  * @internal
  */
-export function locationSyncBootstrapListener(ngUpgrade: UpgradeModule) {
-  return () => { setUpLocationSync(ngUpgrade); };
+export function locationSyncBootstrapListener() {
+  const ngUpgrade = inject(UpgradeModule);
+
+  return () => {
+    setUpLocationSync(ngUpgrade);
+  };
 }
 
 /**
- * @description
+ * Sets up a location change listener to trigger `history.pushState`.
+ * Works around the problem that `onPopState` does not trigger `history.pushState`.
+ * Must be called *after* calling `UpgradeModule.bootstrap`.
  *
- * Sets up a location synchronization.
- *
- * History.pushState does not fire onPopState, so the Angular location
- * doesn't detect it. The workaround is to attach a location change listener
+ * @param ngUpgrade The upgrade NgModule.
+ * @param urlType The location strategy.
+ * @see {@link /api/common/HashLocationStrategy HashLocationStrategy}
+ * @see {@link /api/common/PathLocationStrategy PathLocationStrategy}
  *
  * @publicApi
  */
-export function setUpLocationSync(ngUpgrade: UpgradeModule) {
+export function setUpLocationSync(
+  ngUpgrade: UpgradeModule,
+  urlType: 'path' | 'hash' = 'path',
+): void {
   if (!ngUpgrade.$injector) {
     throw new Error(`
         RouterUpgradeInitializer can be used only after UpgradeModule.bootstrap has been called.
@@ -69,16 +85,45 @@ export function setUpLocationSync(ngUpgrade: UpgradeModule) {
   const router: Router = ngUpgrade.injector.get(Router);
   const location: Location = ngUpgrade.injector.get(Location);
 
-  ngUpgrade.$injector.get('$rootScope')
-      .$on('$locationChangeStart', (_: any, next: string, __: string) => {
-        const url = resolveUrl(next);
+  ngUpgrade.$injector
+    .get('$rootScope')
+    .$on(
+      '$locationChangeStart',
+      (
+        event: any,
+        newUrl: string,
+        oldUrl: string,
+        newState?: {[k: string]: unknown} | RestoredState,
+        oldState?: {[k: string]: unknown} | RestoredState,
+      ) => {
+        // Navigations coming from Angular router have a navigationId state
+        // property. Don't trigger Angular router navigation again if it is
+        // caused by a URL change from the current Angular router
+        // navigation.
+        const currentNavigationId = router.getCurrentNavigation()?.id;
+        const newStateNavigationId = newState?.navigationId;
+        if (newStateNavigationId !== undefined && newStateNavigationId === currentNavigationId) {
+          return;
+        }
+
+        let url;
+        if (urlType === 'path') {
+          url = resolveUrl(newUrl);
+        } else if (urlType === 'hash') {
+          // Remove the first hash from the URL
+          const hashIdx = newUrl.indexOf('#');
+          url = resolveUrl(newUrl.substring(0, hashIdx) + newUrl.substring(hashIdx + 1));
+        } else {
+          throw 'Invalid URLType passed to setUpLocationSync: ' + urlType;
+        }
         const path = location.normalize(url.pathname);
         router.navigateByUrl(path + url.search + url.hash);
-      });
+      },
+    );
 }
 
 /**
- * Normalize and parse a URL.
+ * Normalizes and parses a URL.
  *
  * - Normalizing means that a relative URL will be resolved into an absolute URL in the context of
  *   the application document.
@@ -95,11 +140,9 @@ export function setUpLocationSync(ngUpgrade: UpgradeModule) {
  * https://github.com/angular/angular.js/blob/2c7400e7d07b0f6cec1817dab40b9250ce8ebce6/src/ng/urlUtils.js#L26-L33
  * for more info.
  */
-let anchor: HTMLAnchorElement|undefined;
-function resolveUrl(url: string): {pathname: string, search: string, hash: string} {
-  if (!anchor) {
-    anchor = document.createElement('a');
-  }
+let anchor: HTMLAnchorElement | undefined;
+function resolveUrl(url: string): {pathname: string; search: string; hash: string} {
+  anchor ??= document.createElement('a');
 
   anchor.setAttribute('href', url);
   anchor.setAttribute('href', anchor.href);
@@ -108,6 +151,6 @@ function resolveUrl(url: string): {pathname: string, search: string, hash: strin
     // IE does not start `pathname` with `/` like other browsers.
     pathname: `/${anchor.pathname.replace(/^\//, '')}`,
     search: anchor.search,
-    hash: anchor.hash
+    hash: anchor.hash,
   };
 }

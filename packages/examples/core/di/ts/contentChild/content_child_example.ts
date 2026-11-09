@@ -1,45 +1,49 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 // #docregion Component
-import {Component, ContentChild, Directive, Input} from '@angular/core';
+import {Component, contentChild, Directive, input, signal} from '@angular/core';
 
-@Directive({selector: 'pane'})
+@Directive({
+  selector: 'pane',
+})
 export class Pane {
-  // TODO(issue/24571): remove '!'.
-  @Input() id !: string;
+  id = input.required<string>();
 }
 
 @Component({
   selector: 'tab',
-  template: `
-    <div>pane: {{pane?.id}}</div> 
-  `
+  template: ` <div>pane: {{ pane()?.id() }}</div> `,
 })
 export class Tab {
-  // TODO(issue/24571): remove '!'.
-  @ContentChild(Pane) pane !: Pane;
+  pane = contentChild(Pane);
 }
 
 @Component({
   selector: 'example-app',
+  imports: [Tab, Pane],
   template: `
     <tab>
-      <pane id="1" *ngIf="shouldShow"></pane>
-      <pane id="2" *ngIf="!shouldShow"></pane>
+      @if (shouldShow()) {
+        <pane id="1" />
+      } @else {
+        <pane id="2" />
+      }
     </tab>
-    
+
     <button (click)="toggle()">Toggle</button>
   `,
 })
 export class ContentChildComp {
-  shouldShow = true;
+  shouldShow = signal(true);
 
-  toggle() { this.shouldShow = !this.shouldShow; }
+  toggle() {
+    this.shouldShow.update((shouldShow) => !shouldShow);
+  }
 }
 // #enddocregion

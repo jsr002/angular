@@ -1,37 +1,52 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-import {ElementArrayFinder, ElementFinder, browser, by, element} from 'protractor';
-import {verifyNoBrowserErrors} from '../../../../_common/e2e_util';
+import * as webdriver from 'selenium-webdriver';
+import {createWebDriver, verifyNoBrowserErrors, waitForAngular} from '../../../../test-utils';
 
 describe('reactiveSelectControl example', () => {
-  afterEach(verifyNoBrowserErrors);
-  let select: ElementFinder;
-  let options: ElementArrayFinder;
-  let p: ElementFinder;
+  let driver: webdriver.WebDriver;
+  let baseUrl: string;
 
-  beforeEach(() => {
-    browser.get('/forms/ts/reactiveSelectControl/index.html');
-    select = element(by.css('select'));
-    options = element.all(by.css('option'));
-    p = element(by.css('p'));
+  beforeAll(async () => {
+    ({driver, baseUrl} = await createWebDriver());
   });
 
-  it('should populate the initial selection', () => {
-    expect(select.getAttribute('value')).toEqual('3: Object');
-    expect(options.get(3).getAttribute('selected')).toBe('true');
+  afterAll(async () => {
+    await driver.quit();
   });
 
-  it('should update the model when the value changes in the UI', () => {
-    select.click();
-    options.get(0).click();
-
-    expect(p.getText()).toEqual('Form value: { "state": { "name": "Arizona", "abbrev": "AZ" } }');
+  afterEach(async () => {
+    await verifyNoBrowserErrors(driver);
   });
 
+  beforeEach(async () => {
+    await driver.get(`${baseUrl}/reactiveSelectControl`);
+    await waitForAngular(driver);
+  });
+
+  it('should populate the initial selection', async () => {
+    const select = await driver.findElement(webdriver.By.css('select'));
+    const options = await driver.findElements(webdriver.By.css('option'));
+    expect(await select.getAttribute('value')).toEqual('3: Object');
+    expect(await options[3].isSelected()).toBe(true);
+  });
+
+  it('should update the model when the value changes in the UI', async () => {
+    const select = await driver.findElement(webdriver.By.css('select'));
+    const options = await driver.findElements(webdriver.By.css('option'));
+    await select.click();
+    await options[0].click();
+    await waitForAngular(driver);
+
+    const p = await driver.findElement(webdriver.By.css('p'));
+    expect(await p.getText()).toEqual(
+      'Form value: { "state": { "name": "Arizona", "abbrev": "AZ" } }',
+    );
+  });
 });

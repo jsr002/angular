@@ -1,189 +1,143 @@
-"""Re-export of some bazel rules with repository-wide defaults."""
+load("@aspect_rules_js//js:defs.bzl", _js_library = "js_library")
+load("@aspect_rules_ts//ts:defs.bzl", _ts_config = "ts_config")
+load("@bazel_lib//lib:copy_to_bin.bzl", _copy_to_bin = "copy_to_bin")
+load("@devinfra//bazel:extract_types.bzl", _extract_types = "extract_types")
+load("@devinfra//bazel/api-golden:index.bzl", _api_golden_test = "api_golden_test", _api_golden_test_npm_package = "api_golden_test_npm_package")
+load("@devinfra//bazel/http-server:index.bzl", _http_server = "http_server")
+load("@devinfra//bazel/ts_project:index.bzl", "strict_deps_test")
+load("@rules_angular//src/ng_examples_db:index.bzl", _ng_examples_db = "ng_examples_db")
+load("@rules_angular//src/ng_project:index.bzl", _ng_project = "ng_project")
+load("@rules_angular//src/ts_project:index.bzl", _ts_project = "ts_project")
+load("@rules_sass//src:index.bzl", _npm_sass_library = "npm_sass_library", _sass_binary = "sass_binary", _sass_library = "sass_library")
+load("//tools/bazel:esbuild.bzl", _esbuild = "esbuild", _esbuild_checked_in = "esbuild_checked_in")
+load("//tools/bazel:jasmine_test.bzl", _angular_jasmine_test = "angular_jasmine_test", _jasmine_test = "jasmine_test", _zone_compatible_jasmine_test = "zone_compatible_jasmine_test", _zoneless_jasmine_test = "zoneless_jasmine_test")
+load("//tools/bazel:js_defs.bzl", _js_binary = "js_binary", _js_run_binary = "js_run_binary", _js_test = "js_test")
+load("//tools/bazel:npm_packages.bzl", _ng_package = "ng_package", _npm_package = "npm_package")
+load("//tools/bazel:tsec.bzl", _tsec_test = "tsec_test")
+load("//tools/bazel:web_test.bzl", _ng_web_test_suite = "ng_web_test_suite", _web_test = "web_test", _zoneless_web_test_suite = "zoneless_web_test_suite")
+load("//tools/bazel:webdriver_test.bzl", _webdriver_test = "webdriver_test")
 
-load("@build_bazel_rules_nodejs//:defs.bzl", _jasmine_node_test = "jasmine_node_test", _nodejs_binary = "nodejs_binary", _npm_package = "npm_package")
-load("@build_bazel_rules_typescript//:defs.bzl", _ts_library = "ts_library", _ts_web_test_suite = "ts_web_test_suite")
-load("//packages/bazel:index.bzl", _ng_module = "ng_module", _ng_package = "ng_package")
-load("//packages/bazel/src:ng_rollup_bundle.bzl", _ng_rollup_bundle = "ng_rollup_bundle")
+extract_types = _extract_types
+esbuild = _esbuild
+js_binary = _js_binary
+js_run_binary = _js_run_binary
+js_test = _js_test
+npm_package = _npm_package
+ts_config = _ts_config
+ng_package = _ng_package
+jasmine_test = _jasmine_test
+angular_jasmine_test = _angular_jasmine_test
+zone_compatible_jasmine_test = _zone_compatible_jasmine_test
+zoneless_jasmine_test = _zoneless_jasmine_test
+ng_web_test_suite = _ng_web_test_suite
+zoneless_web_test_suite = _zoneless_web_test_suite
+web_test = _web_test
+sass_binary = _sass_binary
+sass_library = _sass_library
+npm_sass_library = _npm_sass_library
+webdriver_test = _webdriver_test
+esbuild_checked_in = _esbuild_checked_in
+http_server = _http_server
+api_golden_test = _api_golden_test
+api_golden_test_npm_package = _api_golden_test_npm_package
+copy_to_bin = _copy_to_bin
+tsec_test = _tsec_test
+js_library = _js_library
+ng_examples_db = _ng_examples_db
 
-_DEFAULT_TSCONFIG_BUILD = "//packages:tsconfig-build.json"
-_DEFAULT_TSCONFIG_TEST = "//packages:tsconfig-test.json"
-_DEFAULT_TS_TYPINGS = "@ngdeps//typescript:typescript__typings"
-_DEFAULT_KARMA_BIN = "@ngdeps//@bazel/karma/bin:karma"
-_INTERNAL_NG_MODULE_COMPILER = "//packages/bazel/src/ngc-wrapped"
-_INTERNAL_NG_MODULE_XI18N = "//packages/bazel/src/ngc-wrapped:xi18n"
-_INTERNAL_NG_PACKAGER_PACKAGER = "//packages/bazel/src/ng_package:packager"
+def _determine_tsconfig(testonly):
+    if native.package_name().startswith("packages/compiler-cli"):
+        return "//packages/compiler-cli:tsconfig_test" if testonly else "//packages/compiler-cli:tsconfig_build"
 
-# Packages which are versioned together on npm
-ANGULAR_SCOPED_PACKAGES = ["@angular/%s" % p for p in [
-    # core should be the first package because it's the main package in the group
-    # this is significant for Angular CLI and "ng update" specifically, @angular/core
-    # is considered the identifier of the group by these tools.
-    "core",
-    "bazel",
-    "common",
-    "compiler",
-    "compiler-cli",
-    "animations",
-    "elements",
-    "platform-browser",
-    "platform-browser-dynamic",
-    "forms",
-    "http",
-    "platform-server",
-    "platform-webworker",
-    "platform-webworker-dynamic",
-    "upgrade",
-    "router",
-    "language-service",
-    "service-worker",
-]]
+    if native.package_name().startswith("packages/service-worker"):
+        return "//packages:tsconfig_test" if testonly else "//packages/service-worker:tsconfig_build"
 
-PKG_GROUP_REPLACEMENTS = {
-    "\"NG_UPDATE_PACKAGE_GROUP\"": """[
-      %s
-    ]""" % ",\n      ".join(["\"%s\"" % s for s in ANGULAR_SCOPED_PACKAGES]),
-}
+    if native.package_name().startswith("packages/core/schematics"):
+        return "//packages/core/schematics:tsconfig_test" if testonly else "//packages/core/schematics:tsconfig_build"
 
-def ts_library(tsconfig = None, testonly = False, deps = [], **kwargs):
-    """Default values for ts_library"""
-    deps = deps + ["@ngdeps//tslib"]
-    if testonly:
-        # Match the types[] in //packages:tsconfig-test.json
-        deps.append("@ngdeps//@types/jasmine")
-        deps.append("@ngdeps//@types/node")
-    if not tsconfig:
-        if testonly:
-            tsconfig = _DEFAULT_TSCONFIG_TEST
-        else:
-            tsconfig = _DEFAULT_TSCONFIG_BUILD
+    if native.package_name().startswith("packages/core"):
+        return "//packages/core:tsconfig_test" if testonly else "//packages/core:tsconfig_build"
 
-    _ts_library(
-        tsconfig = tsconfig,
+    if native.package_name().startswith("packages/benchpress"):
+        return "//packages:tsconfig_test" if testonly else "//packages/benchpress:tsconfig_build"
+
+    if native.package_name().startswith("packages/language-service"):
+        return "//packages:tsconfig_test" if testonly else "//packages/language-service:tsconfig_build"
+
+    if native.package_name().startswith("packages/localize/tools"):
+        return "//packages:tsconfig_test" if testonly else "//packages/localize/tools:tsconfig_build"
+
+    if native.package_name().startswith("packages/common/locales/generate-locales-tool"):
+        return "//packages:tsconfig_test" if testonly else "//packages/common/locales/generate-locales-tool:tsconfig_build"
+
+    if native.package_name().startswith("packages/examples"):
+        return "//packages/examples:tsconfig_test" if testonly else "//packages/examples:tsconfig_build"
+
+    if native.package_name().startswith("packages"):
+        return "//packages:tsconfig_test" if testonly else "//packages:tsconfig_build"
+
+    if native.package_name().startswith("tools"):
+        return "//tools:tsconfig_test" if testonly else "//tools:tsconfig_build"
+
+    if native.package_name().startswith("vscode-ng-language-service"):
+        return "//vscode-ng-language-service:tsconfig_test" if testonly else "//vscode-ng-language-service:tsconfig_build"
+
+    fail("Failing... a tsconfig value must be provided.")
+
+def ts_project(
+        name,
+        deps = [],
+        srcs = [],
+        source_map = True,
+        testonly = False,
+        tsconfig = None,
+        **kwargs):
+    if tsconfig == None:
+        tsconfig = _determine_tsconfig(testonly)
+
+    _ts_project(
+        name,
+        srcs = srcs,
+        deps = deps,
+        declaration = True,
+        source_map = source_map,
         testonly = testonly,
-        deps = deps,
-        node_modules = _DEFAULT_TS_TYPINGS,
-        **kwargs
-    )
-
-def ng_module(name, tsconfig = None, entry_point = None, testonly = False, deps = [], **kwargs):
-    """Default values for ng_module"""
-    deps = deps + ["@ngdeps//tslib"]
-    if testonly:
-        # Match the types[] in //packages:tsconfig-test.json
-        deps.append("@ngdeps//@types/jasmine")
-        deps.append("@ngdeps//@types/node")
-    if not tsconfig:
-        if testonly:
-            tsconfig = _DEFAULT_TSCONFIG_TEST
-        else:
-            tsconfig = _DEFAULT_TSCONFIG_BUILD
-    if not entry_point:
-        entry_point = "public_api.ts"
-    _ng_module(
-        name = name,
-        flat_module_out_file = name,
         tsconfig = tsconfig,
-        entry_point = entry_point,
+        **kwargs
+    )
+
+    strict_deps_test(
+        name = "%s_deps" % name,
+        srcs = srcs,
+        tsconfig = tsconfig,
+        deps = deps,
+    )
+
+def ng_project(
+        name,
+        deps = [],
+        srcs = [],
+        source_map = True,
+        testonly = False,
+        tsconfig = None,
+        **kwargs):
+    if tsconfig == None:
+        tsconfig = _determine_tsconfig(testonly)
+
+    _ng_project(
+        name,
+        srcs = srcs,
+        deps = deps,
+        declaration = True,
+        source_map = source_map,
         testonly = testonly,
+        tsconfig = tsconfig,
+        **kwargs
+    )
+
+    strict_deps_test(
+        name = "%s_deps" % name,
+        srcs = srcs,
+        tsconfig = tsconfig,
         deps = deps,
-        compiler = _INTERNAL_NG_MODULE_COMPILER,
-        ng_xi18n = _INTERNAL_NG_MODULE_XI18N,
-        node_modules = _DEFAULT_TS_TYPINGS,
-        **kwargs
-    )
-
-def ng_package(name, readme_md = None, license_banner = None, deps = [], **kwargs):
-    """Default values for ng_package"""
-    if not readme_md:
-        readme_md = "//packages:README.md"
-    if not license_banner:
-        license_banner = "//packages:license-banner.txt"
-    deps = deps + [
-        "@ngdeps//tslib",
-    ]
-
-    _ng_package(
-        name = name,
-        deps = deps,
-        readme_md = readme_md,
-        license_banner = license_banner,
-        replacements = PKG_GROUP_REPLACEMENTS,
-        ng_packager = _INTERNAL_NG_PACKAGER_PACKAGER,
-        **kwargs
-    )
-
-def npm_package(name, replacements = {}, **kwargs):
-    """Default values for npm_package"""
-    _npm_package(
-        name = name,
-        replacements = dict(replacements, **PKG_GROUP_REPLACEMENTS),
-        **kwargs
-    )
-
-def ts_web_test_suite(bootstrap = [], deps = [], **kwargs):
-    """Default values for ts_web_test_suite"""
-    if not bootstrap:
-        bootstrap = ["//:web_test_bootstrap_scripts"]
-    local_deps = [
-        "@ngdeps//node_modules/tslib:tslib.js",
-        "//tools/testing:browser",
-    ] + deps
-
-    _ts_web_test_suite(
-        bootstrap = bootstrap,
-        deps = local_deps,
-        karma = _DEFAULT_KARMA_BIN,
-        # Run unit tests on local Chromium by default.
-        # You can exclude tests based on tags, e.g. to skip Firefox testing,
-        #   `yarn bazel test --test_tag_filters=-browser:firefox-local [targets]`
-        browsers = [
-            "@io_bazel_rules_webtesting//browsers:chromium-local",
-            # Don't test on local Firefox by default, for faster builds.
-            # We think that bugs in Angular tend to be caught the same in any
-            # evergreen browser.
-            # "@io_bazel_rules_webtesting//browsers:firefox-local",
-            # TODO(alexeagle): add remote browsers on SauceLabs
-        ],
-        **kwargs
-    )
-
-def nodejs_binary(data = [], **kwargs):
-    """Default values for nodejs_binary"""
-    _nodejs_binary(
-        # Pass-thru --define=compile=foo as an environment variable
-        configuration_env_vars = ["compile"],
-        data = data + ["@ngdeps//source-map-support"],
-        **kwargs
-    )
-
-def jasmine_node_test(deps = [], **kwargs):
-    """Default values for jasmine_node_test"""
-    deps = deps + [
-        # Very common dependencies for tests
-        "@ngdeps//chokidar",
-        "@ngdeps//domino",
-        "@ngdeps//jasmine",
-        "@ngdeps//jasmine-core",
-        "@ngdeps//mock-fs",
-        "@ngdeps//reflect-metadata",
-        "@ngdeps//source-map-support",
-        "@ngdeps//tslib",
-        "@ngdeps//xhr2",
-    ]
-    _jasmine_node_test(
-        deps = deps,
-        # Pass-thru --define=compile=foo as an environment variable
-        configuration_env_vars = ["compile"],
-        **kwargs
-    )
-
-def ng_rollup_bundle(deps = [], **kwargs):
-    """Default values for ng_rollup_bundle"""
-    deps = deps + [
-        "@ngdeps//tslib",
-        "@ngdeps//reflect-metadata",
-    ]
-    _ng_rollup_bundle(
-        deps = deps,
-        **kwargs
     )

@@ -1,22 +1,20 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-import {SimpleChange} from '../../change_detection/change_detection_util';
-import {OnChanges, SimpleChanges} from '../../metadata/lifecycle_hooks';
+import {InputSignalNode} from '../../authoring/input/input_signal_node';
+import {OnChanges} from '../../change_detection/lifecycle_hooks';
+import {SimpleChange, SimpleChanges} from '../../change_detection/simple_change';
+import {assertString} from '../../util/assert';
+import {EMPTY_OBJ} from '../../util/empty';
+import {applyValueToInputField} from '../apply_value_input_field';
 import {DirectiveDef, DirectiveDefFeature} from '../interfaces/definition';
 
-const PRIVATE_PREFIX = '__ngOnChanges_';
-
-type OnChangesExpando = OnChanges & {
-  __ngOnChanges_: SimpleChanges|null|undefined;
-  // tslint:disable-next-line:no-any Can hold any value
-  [key: string]: any;
-};
+let _ngOnChangesFeatureImpl: typeof NgOnChangesFeatureImpl | null = null;
 
 /**
  * The NgOnChangesFeature decorates a component with support for the ngOnChanges
@@ -30,93 +28,114 @@ type OnChangesExpando = OnChanges & {
  *
  * Example usage:
  *
- * ```
- * static ngComponentDef = defineComponent({
+ * ```ts
+ * static ɵcmp = defineComponent({
  *   ...
  *   inputs: {name: 'publicName'},
  *   features: [NgOnChangesFeature]
  * });
  * ```
+ *
+ * @codeGenApi
  */
-export function NgOnChangesFeature<T>(definition: DirectiveDef<T>): void {
-  const declaredToMinifiedInputs = definition.declaredInputs;
-  const proto = definition.type.prototype;
-  for (const declaredName in declaredToMinifiedInputs) {
-    if (declaredToMinifiedInputs.hasOwnProperty(declaredName)) {
-      const minifiedKey = declaredToMinifiedInputs[declaredName];
-      const privateMinKey = PRIVATE_PREFIX + minifiedKey;
+export const ɵɵNgOnChangesFeature: () => DirectiveDefFeature = /* @__PURE__ */ (() => {
+  _ngOnChangesFeatureImpl = NgOnChangesFeatureImpl;
+  const ɵɵNgOnChangesFeatureImpl = () => NgOnChangesFeatureImpl;
 
-      // Walk the prototype chain to see if we find a property descriptor
-      // That way we can honor setters and getters that were inherited.
-      let originalProperty: PropertyDescriptor|undefined = undefined;
-      let checkProto = proto;
-      while (!originalProperty && checkProto &&
-             Object.getPrototypeOf(checkProto) !== Object.getPrototypeOf(Object.prototype)) {
-        originalProperty = Object.getOwnPropertyDescriptor(checkProto, minifiedKey);
-        checkProto = Object.getPrototypeOf(checkProto);
-      }
+  // This option ensures that the ngOnChanges lifecycle hook will be inherited
+  // from superclasses (in InheritDefinitionFeature).
+  /** @nocollapse */
+  ɵɵNgOnChangesFeatureImpl.ngInherit = true;
 
-      const getter = originalProperty && originalProperty.get;
-      const setter = originalProperty && originalProperty.set;
+  return ɵɵNgOnChangesFeatureImpl;
+})();
 
-      // create a getter and setter for property
-      Object.defineProperty(proto, minifiedKey, {
-        get: getter ||
-            (setter ? undefined : function(this: OnChangesExpando) { return this[privateMinKey]; }),
-        set<T>(this: OnChangesExpando, value: T) {
-          let simpleChanges = this[PRIVATE_PREFIX];
-          if (!simpleChanges) {
-            simpleChanges = {};
-            // Place where we will store SimpleChanges if there is a change
-            Object.defineProperty(this, PRIVATE_PREFIX, {value: simpleChanges, writable: true});
-          }
-
-          const isFirstChange = !this.hasOwnProperty(privateMinKey);
-          const currentChange = simpleChanges[declaredName];
-
-          if (currentChange) {
-            currentChange.currentValue = value;
-          } else {
-            simpleChanges[declaredName] =
-                new SimpleChange(this[privateMinKey], value, isFirstChange);
-          }
-
-          if (isFirstChange) {
-            // Create a place where the actual value will be stored and make it non-enumerable
-            Object.defineProperty(this, privateMinKey, {value, writable: true});
-          } else {
-            this[privateMinKey] = value;
-          }
-
-          if (setter) setter.call(this, value);
-        },
-        // Make the property configurable in dev mode to allow overriding in tests
-        configurable: !!ngDevMode
-      });
-    }
-  }
-
-  // If an onInit hook is defined, it will need to wrap the ngOnChanges call
-  // so the call order is changes-init-check in creation mode. In subsequent
-  // change detection runs, only the check wrapper will be called.
-  if (definition.onInit != null) {
-    definition.onInit = onChangesWrapper(definition.onInit);
-  }
-
-  definition.doCheck = onChangesWrapper(definition.doCheck);
+export function getNgOnChangesFeatureImpl(): typeof NgOnChangesFeatureImpl {
+  return _ngOnChangesFeatureImpl!;
 }
 
-// This option ensures that the ngOnChanges lifecycle hook will be inherited
-// from superclasses (in InheritDefinitionFeature).
-(NgOnChangesFeature as DirectiveDefFeature).ngInherit = true;
+/**
+ * We don't expose the feature implementation directly in order to tree shake it when `ngOnChanges` isn't used.
+ */
+function NgOnChangesFeatureImpl<T>(definition: DirectiveDef<T>) {
+  if (definition.type.prototype.ngOnChanges) {
+    definition.setInput = ngOnChangesSetInput;
+  }
+  return rememberChangeHistoryAndInvokeOnChangesHook;
+}
 
-function onChangesWrapper(delegateHook: (() => void) | null) {
-  return function(this: OnChangesExpando) {
-    const simpleChanges = this[PRIVATE_PREFIX];
-    if (simpleChanges != null) {
-      this.ngOnChanges(simpleChanges);
-      this[PRIVATE_PREFIX] = null;
+/**
+ * This is a synthetic lifecycle hook which gets inserted into `TView.preOrderHooks` to simulate
+ * `ngOnChanges`.
+ *
+ * The hook reads the `NgSimpleChangesStore` data from the component instance and if changes are
+ * found it invokes `ngOnChanges` on the component instance.
+ *
+ * @param this Component instance. Because this function gets inserted into `TView.preOrderHooks`,
+ *     it is guaranteed to be called with component instance.
+ */
+function rememberChangeHistoryAndInvokeOnChangesHook(this: OnChanges) {
+  const simpleChangesStore = getSimpleChangesStore(this);
+  const current = simpleChangesStore?.current;
+
+  if (current) {
+    const previous = simpleChangesStore!.previous;
+    if (previous === EMPTY_OBJ) {
+      simpleChangesStore!.previous = current;
+    } else {
+      // New changes are copied to the previous store, so that we don't lose history for inputs
+      // which were not changed this time
+      for (let key in current) {
+        previous[key] = current[key];
+      }
     }
-    if (delegateHook) delegateHook.apply(this);
-  };
+    simpleChangesStore!.current = null;
+    this.ngOnChanges(current);
+  }
+}
+
+function ngOnChangesSetInput<T>(
+  this: DirectiveDef<T>,
+  instance: T,
+  inputSignalNode: null | InputSignalNode<unknown, unknown>,
+  value: unknown,
+  publicName: string,
+  privateName: string,
+): void {
+  const declaredName = (this.declaredInputs as {[key: string]: string})[publicName];
+  ngDevMode && assertString(declaredName, 'Name of input in ngOnChanges has to be a string');
+  const simpleChangesStore =
+    getSimpleChangesStore(instance) ||
+    setSimpleChangesStore(instance, {previous: EMPTY_OBJ, current: null});
+  const current = simpleChangesStore.current || (simpleChangesStore.current = {});
+  const previous = simpleChangesStore.previous;
+  const previousChange = previous[declaredName];
+  current[declaredName] = new SimpleChange(
+    previousChange && previousChange.currentValue,
+    value,
+    previous === EMPTY_OBJ,
+  );
+
+  applyValueToInputField(instance, inputSignalNode, privateName, value);
+}
+
+const SIMPLE_CHANGES_STORE = '__ngSimpleChanges__';
+
+function getSimpleChangesStore(instance: any): null | NgSimpleChangesStore {
+  return Object.hasOwn(instance, SIMPLE_CHANGES_STORE)
+    ? instance[SIMPLE_CHANGES_STORE] || null
+    : null;
+}
+
+function setSimpleChangesStore(instance: any, store: NgSimpleChangesStore): NgSimpleChangesStore {
+  return (instance[SIMPLE_CHANGES_STORE] = store);
+}
+
+/**
+ * Data structure which is monkey-patched on the component instance and used by `ngOnChanges`
+ * life-cycle hook to track previous input values.
+ */
+interface NgSimpleChangesStore {
+  previous: SimpleChanges;
+  current: SimpleChanges | null;
 }

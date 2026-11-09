@@ -1,542 +1,535 @@
-# Configuration for pullapprove.com
+####################################################################################
+####################################################################################
+#                               Angular Code Ownership                             #
+####################################################################################
+####################################################################################
 #
-# Approval access and primary role is determined by info in the project ownership spreadsheet:
-# https://docs.google.com/spreadsheets/d/1-HIlzfbPYGsPr9KuYMe6bLfc4LXzPjpoALqtYRYTZB0/edit?pli=1#gid=0&vpid=A5
+#  Configuration of code ownership and review approvals for the angular/angular repo.
 #
-# === GitHub username to Full name map ===
+#  More info: https://docs.pullapprove.com/
 #
-# alexeagle - Alex Eagle
-# alxhub - Alex Rickabaugh
-# andrewseguin - Andrew Seguin
-# benlesh - Ben Lesh
-# brandonroberts - Brandon Roberts
-# brocco - Mike Brocchi
-# filipesilva - Filipe Silva
-# gkalpak - George Kalpakas
-# hansl - Hans Larsen
-# IgorMinar - Igor Minar
-# jasonaden - Jason Aden
-# jenniferfell - Jennifer Fell
-# kara - Kara Erickson
-# kyliau - Keen Yee Liau
-# matsko - Matias Niemelä
-# mhevery - Misko Hevery
-# petebacondarwin - Pete Bacon Darwin
-# pkozlowski-opensource - Pawel Kozlowski
-# robwormald - Rob Wormald
-# vikerman - Vikram Subramanian
+# =========================================================
+#  General rules / philosophy
+# =========================================================
+#
+#  - We trust that people do the right thing and won't approve changes they don't feel confident reviewing
+#  - We enforce that only approved PRs are merged ensuring that unreviewed code isn't accidentally merged
+#  - We distribute approval rights as much as possible to help us scale better
+#  - A small number of file groups have very limited number of reviewers because incorrect changes to the files they guard would have serious consequences (e.g. security, public api)
+#
+#  Configuration nuances:
+#
+#  - This configuration works in conjunction with the protected branch settings that require all changes to be made via pull requests with at least one approval.
+#  - This approval can come from an appropriate codeowner, or any repo collaborator (person with write access) if the PR is authored by a codeowner.
+#  - All groups whose pullapprove rules are matched will be required for overall approval.
+#
+#  NOTE:
+#    In the case of emergency, the repo administrators which include the current angular caretaker
+#    can bypass this reviewer approval requirement, this is expected as a last resort and to be
+#    done exceedingly sparingly.
 
+####################################################################################
+#  GitHub usernames
+####################################################################################
+# See reviewer list under `required-minimum-review` group.  Team member names and
+# usernames are managed there.
 
-version: 2
+version: 3
 
-group_defaults:
-  required: 1
-  reset_on_reopened:
-    enabled: true
-  approve_by_comment:
-    enabled: false
-  # see http://docs.pullapprove.com/groups/author_approval/
-  author_approval:
-    # If the author is a reviewer on the PR, they will automatically have an "approved" status.
-    auto: true
+availability:
+  users_unavailable:
+    - devversion
+
+# Meta field that goes unused by PullApprove to allow for defining aliases to be
+# used throughout the config.
+meta:
+  # Note: Because all inactive groups start as pending, we are only checking pending and rejected active groups.
+  no-groups-above-this-pending: &no-groups-above-this-pending len(groups.active.pending.exclude("required-minimum-review")) == 0
+  no-groups-above-this-rejected: &no-groups-above-this-rejected len(groups.active.rejected.exclude("required-minimum-review")) == 0
+
+  defaults: &defaults
+    reviews:
+      # Authors provide their approval implicitly, this approval allows for a reviewer
+      # from a group not to need a review specifically for an area of the repository
+      # they own.  This is coupled with the `required-minimum-review` group which requires
+      # that all PRs are reviewed by at least one team member who is not the author of
+      # the PR.
+      author_value: 1
+
+# turn on 'draft' support
+# https://docs.pullapprove.com/config/github-api-version/
+# https://developer.github.com/v3/previews/#draft-pull-requests
+github_api_version: 'shadow-cat-preview'
+
+# https://docs.pullapprove.com/config/overrides/
+# Note that overrides are processed in order.
+overrides:
+  # For PRs which are still being worked on, either still in draft mode or indicated through WIP in
+  # title or label, PullApprove stays in a pending state until its ready for review.
+  - if: "draft or 'WIP' in title or 'PR state: WIP' in labels"
+    status: pending
+    explanation: 'Waiting to send reviews as PR is WIP'
+  # Disable PullApprove on specific PRs by adding the `PullApprove: disable` label
+  - if: "'PullApprove: disable' in labels"
+    status: success
+    explanation: "PullApprove skipped because of 'PullApprove: disable' label"
+  # If no file matching based groups are active, report this pull request as failing. Most likely,
+  # the PR author would need to update the PullApprove config, or create new group.
+  - if: len(groups.active.exclude("required-minimum-review").exclude("global-*")) == 0 and len(groups.approved.include("global-*")) == 0
+    status: failure
+    explanation: 'At least one group must match this PR. Please update an existing review group, or create a new group.'
+  # If any global approval is given the status should be passing.
+  - if: len(groups.approved.include("global-approvers")) == 1
+    status: success
+    explanation: 'Passing as globally approved by global approvers'
 
 groups:
-  # Require all PRs to have at least one approval from *someone*
-  all:
-    users: all
-    required: 1
-    rejection_value: -999
-    # In this group, your self-approval does not count
-    author_approval:
-      auto: false
-      ignored: true
-    files:
-      include:
-        - "*"
-
-  root:
+  # =========================================================
+  #  Framework: Compiler
+  # =========================================================
+  fw-compiler:
+    <<: *defaults
     conditions:
-      files:
-        include:
-          - "*"
-        exclude:
-          - "WORKSPACE"
-          - "BUILD.bazel"
-          - ".circleci/*"
-          - "aio/*"
-          - "integration/*"
-          - "modules/*"
-          - "packages/*"
-          - "tools/*"
-    users:
-      - alexeagle
-      - IgorMinar
-      - mhevery
+      - >
+        contains_any_globs(files, [
+          'packages/compiler/**/{*,.*}',
+          'packages/examples/compiler/**/{*,.*}',
+          'packages/compiler-cli/**/{*,.*}',
+          'packages/language-service/**/{*,.*}',
+        ])
+    reviewers:
+      users:
+        - ~alxhub
+        - ~AndrewKushnir
+        - atscott
+        - crisbeto
+        - devversion
+        - ~thePunderWoman
+        - kirjs
+        - JoostK
+        - ~amishne
+        - ~leonsenft
+        - ~mattrbeck
+        - ~JeanMeche
 
+  # =========================================================
+  #  Framework: General (most code in our packages)
+  # =========================================================
+  fw-general:
+    <<: *defaults
+    conditions:
+      - >
+        contains_any_globs(files.exclude('packages/core/primitives/*'), [
+          '.agent/skills/**/{*,.*}',
+          'contributing-docs/public-api-surface.md',
+          'dev-app/**/{*,.*}',
+          'integration/**/{*,.*}',
+          'modules/**/{*,.*}',
+          'packages/animations/**/{*,.*}',
+          'packages/benchpress/**/{*,.*}',
+          'packages/common/**/{*,.*}',
+          'packages/core/**/{*,.*}',
+          'packages/docs/**/{*,.*}',
+          'packages/elements/**/{*,.*}',
+          'packages/examples/**/{*,.*}',
+          'packages/forms/**/{*,.*}',
+          'packages/localize/**/{*,.*}',
+          'packages/misc/**/{*,.*}',
+          'packages/platform-browser/**/{*,.*}',
+          'packages/platform-browser-dynamic/**/{*,.*}',
+          'packages/platform-server/**/{*,.*}',
+          'packages/private/**/{*,.*}',
+          'packages/ssr/**/{*,.*}',
+          'packages/router/**/{*,.*}',
+          'packages/service-worker/**/{*,.*}',
+          'packages/upgrade/**/{*,.*}',
+          'vscode-ng-language-service/**/{*,.*}',
+          'ngp-vscode-ng-language-service/**/{*,.*}',
+        ])
+    reviewers:
+      users:
+        - ~alxhub
+        - ~AndrewKushnir
+        - atscott
+        - crisbeto
+        - devversion
+        - kirjs
+        - ~thePunderWoman
+        - ~pkozlowski-opensource
+        - JeanMeche
+        - ~amishne
+        - ~leonsenft
+        - ~mattrbeck
+
+  # =========================================================
+  #  Framework: Security-sensitive files which require extra review
+  # =========================================================
+  fw-security:
+    <<: *defaults
+    conditions:
+      - >
+        contains_any_globs(files, [
+          'packages/core/src/sanitization/**/{*,.*}',
+          'packages/core/test/linker/security_integration_spec.ts',
+          'packages/compiler/src/schema/**/{*,.*}',
+          'packages/platform-browser/src/security/**/{*,.*}',
+          'packages/tsconfig-tsec-base.json',
+          'packages/tsec-exemption.json',
+          'tools/tsec.bzl',
+          'adev/src/content/guide/security.md',
+          'adev/src/content/examples/security/**/{*,.*}',
+          ])
+    reviewers:
+      users:
+        - ~alxhub
+        - josephperrott
+        - ~pkozlowski-opensource
+        - alan-agius4
+    reviews:
+      request: -1 # request reviews from everyone
+      required: 2 # require at least 2 approvals
+      reviewed_for: required
+
+  # =========================================================
+  #  zone.js
+  # =========================================================
+  zone-js:
+    <<: *defaults
+    conditions:
+      - >
+        contains_any_globs(files.exclude('yarn.lock'), [
+          'packages/zone.js/**/{*,.*}',
+        ])
+    reviewers:
+      users:
+        - ~JiaLiPassion
+        - ~alxhub
+        - ~AndrewKushnir
+        - atscott
+        - crisbeto
+        - devversion
+        - kirjs
+        - alan-agius4
+        - ~thePunderWoman
+        - ~pkozlowski-opensource
+        - ~amishne
+        - ~leonsenft
+        - ~mattrbeck
+
+  # =========================================================
+  #  Tooling: Compiler API shared with Angular CLI
+  #
+  #  Changing this API might break Angular CLI, so we require
+  #  the CLI team to approve changes here.
+  # =========================================================
+  tooling-cli-shared-api:
+    conditions:
+      - >
+        contains_any_globs(files, [
+          'packages/compiler-cli/private/tooling.ts',
+          'packages/localize/tools/index.ts'
+        ])
+    reviewers:
+      users:
+        - alan-agius4
+        - clydin
+        - dgp1130
+    reviews:
+      request: -1 # request reviews from everyone
+      required: 2 # require at least 2 approvals
+      reviewed_for: required
+
+  # =========================================================
+  #  Documentation content
+  # =========================================================
+  angular-dev:
+    <<: *defaults
+    conditions:
+      - >
+        contains_any_globs(files, [
+          'adev/**/{*,.*}',
+          'tools/manual_api_docs/blocks/*.md',
+          'tools/manual_api_docs/elements/*.md',
+        ])
+    reviewers:
+      users:
+        - alan-agius4
+        - ~alxhub
+        - ~AndrewKushnir
+        - atscott
+        - bencodezen
+        - crisbeto
+        - kirjs
+        - JeanMeche
+        - ~thePunderWoman
+        - devversion
+        - josephperrott
+        - ~pkozlowski-opensource
+        - ~mgechev
+        - MarkTechson
+        - ~hawkgs
+        - ~amishne
+        - ~leonsenft
+        - ~mattrbeck
+        - ~clydin
+        - ~dgp1130
+
+  # =========================================================
+  #  Angular DevTools
+  # =========================================================
+  devtools:
+    <<: *defaults
+    conditions:
+      - >
+        contains_any_globs(files, [
+          'devtools/**/{*,.*}',
+          ])
+    reviewers:
+      users:
+        - AleksanderBodurri
+        - csmick
+        - ~devversion
+        - dgp1130
+        - eduhmc
+        - hawkgs
+        - JeanMeche
+        - ~josephperrott
+        - ~milomg
+
+  # =========================================================
+  #  Dev-infra
+  # =========================================================
+  dev-infra:
+    <<: *defaults
+    conditions:
+      - >
+        contains_any_globs(files
+            .exclude('.pullapprove.yml')
+            .exclude('tools/manual_api_docs/blocks/*.md')
+            .exclude('tools/manual_api_docs/elements/*.md')
+            .exclude('.agent/**/*.md'),
+        [
+          '{*,.*}',
+          '.agent/**/{*,.*}',
+          '.devcontainer/**/{*,.*}',
+          '.github/**/{*,.*}',
+          '.husky/**/{*,.*}',
+          '.gemini/**/{*,.*}',
+          '.ng-dev/**/{*,.*}',
+          '.vscode/**/{*,.*}',
+          'contributing-docs/*.md',
+          'contributing-docs/images/**/{*,.*}',
+          'goldens/{*,.*}',
+          'goldens/public-api/manage.js',
+          'modules/{*,.*}',
+          'packages/{*,.*}',
+          'packages/examples/test-utils/**/{*,.*}',
+          'packages/examples/{*,.*}',
+          'scripts/**/{*,.*}',
+          'third_party/**/{*,.*}',
+          'tools/contributing-stats/**/{*,.*}',
+          'tools/gulp-tasks/**/{*,.*}',
+          'tools/manual_api_docs/**/{*,.*}',
+          'tools/pnpm-patches/**/{*,.*}',
+          'tools/rxjs/**/{*,.*}',
+          'tools/symbol-extractor/**/{*,.*}',
+          'tools/testing/**/{*,.*}',
+          'tools/tslint/**/{*,.*}',
+          'tools/utils/**/{*,.*}',
+          'tools/yarn/**/{*,.*}',
+          'tools/{*,.*}',
+          '**/*.bzl'
+          ])
+      - author not in ["angular-robot"]
+    reviewers:
+      users:
+        - alan-agius4
+        - devversion
+        - josephperrott
+
+  # =========================================================
+  #  Renovate Changes
+  # =========================================================
+  renovate-changes:
+    <<: *defaults
+    conditions:
+      - author in ["angular-robot"]
+    reviewers:
+      users:
+        - ~alan-agius4
+      teams:
+        - angular-caretaker
+        - framework-team
+
+  # =========================================================
+  #  Public API
+  # =========================================================
   public-api:
+    <<: *defaults
     conditions:
-      files:
-        include:
-          - "tools/public_api_guard/*"
-    users:
-      - IgorMinar
-      - mhevery
+      - *no-groups-above-this-pending
+      - *no-groups-above-this-rejected
+      - >
+        contains_any_globs(files.exclude("goldens/public-api/manage.js"), [
+          'goldens/public-api/**/{*,.*}',
+        ])
+    reviewers:
+      users:
+        - ~AndrewKushnir
+        - ~alxhub
+        - atscott
+        - ~thePunderWoman
+        - ~pkozlowski-opensource
+        - kirjs
+        - crisbeto
+        - devversion
+        - JeanMeche
+        - ~hybrist
+        - ~iteriani
+        - ~tbondwilkinson
+        - ~rahatarmanahmed
+        - ~amishne
+        - ~leonsenft
+        - ~mattrbeck
+    reviews:
+      request: 2
+      required: 1
+      reviewed_for: required
 
-  bazel:
+  # ================================================
+  #  Size tracking
+  # ================================================
+  size-tracking:
+    <<: *defaults
     conditions:
-      files:
-        include:
-          - "WORKSPACE"
-          - ".bazel*"
-          - "*.bazel"
-          - "*.bzl"
-          - "packages/bazel/*"
-          - "/docs/BAZEL.md"
-    users:
-      - alexeagle #primary
-      - kyliau
-      - IgorMinar #fallback
-      - mhevery
-      - vikerman #fallback
-      - kara
+      - *no-groups-above-this-pending
+      - *no-groups-above-this-rejected
+      - >
+        contains_any_globs(files, [
+          'integration/**/size.json'
+          ])
+    reviewers:
+      users:
+        - ~alxhub
+        - ~AndrewKushnir
+        - atscott
+        - kirjs
+        - JeanMeche
+        - ~thePunderWoman
+        - ~pkozlowski-opensource
+        - ~amishne
+        - ~leonsenft
+        - ~mattrbeck
+    reviews:
+      request: 2 # Request reviews from 2 people
+      required: 1 # Require that 1 person approve
+      reviewed_for: required
 
-  build-and-ci:
+  # =========================================================
+  #  Agent Skills
+  # =========================================================
+  agent-skills:
+    <<: *defaults
     conditions:
-      files:
-        include:
-          - "*.yml"
-          - "*.json"
-          - "*.lock"
-          - "tools/*"
-        exclude:
-          - "aio/*"
-          - "packages/core/test/bundling/*"
-          - "tools/public_api_guard/*"
-    users:
-      - IgorMinar #primary
-      - alexeagle
-      - jasonaden
-      - mhevery #fallback
+      - >
+        contains_any_globs(files, [
+          'skills/{*,.*}',
+          'skills/**/{*,.*}',
+        ])
+    reviewers:
+      users:
+        - MarkTechson
+        - kirjs
+        - ~JeanMeche
+        - ~dgp1130
 
-  integration:
-    conditions:
-      files:
-        - "integration/*"
-    users:
-      - alexeagle
-      - mhevery
-      - IgorMinar #fallback
+  ####################################################################################
+  #  Special Cases
+  ####################################################################################
 
-  core:
+  # =========================================================
+  #  Code Ownership
+  # =========================================================
+  code-ownership:
+    <<: *defaults
     conditions:
-      files:
-        - "packages/core/*"
-        - "aio/content/guide/bootstrapping.md"
-        - "aio/content/examples/bootstrapping/*"
-        - "aio/content/guide/attribute-directives.md"
-        - "aio/content/examples/attribute-directives/*"
-        - "aio/content/images/guide/attribute-directives/*"
-        - "aio/content/guide/structural-directives.md"
-        - "aio/content/examples/structural-directives/*"
-        - "aio/content/images/guide/structural-directives/*"
-        - "aio/content/guide/dynamic-component-loader.md"
-        - "aio/content/examples/dynamic-component-loader/*"
-        - "aio/content/images/guide/dynamic-component-loader/*"
-        - "aio/content/guide/template-syntax.md"
-        - "aio/content/examples/template-syntax/*"
-        - "aio/content/images/guide/template-syntax/*"
-        - "aio/content/guide/dependency-injection.md"
-        - "aio/content/examples/dependency-injection/*"
-        - "aio/content/images/guide/dependency-injection/*"
-        - "aio/content/guide/dependency-injection-in-action.md"
-        - "aio/content/examples/dependency-injection-in-action/*"
-        - "aio/content/images/guide/dependency-injection-in-action/*"
-        - "aio/content/guide/hierarchical-dependency-injection.md"
-        - "aio/content/examples/hierarchical-dependency-injection/*"
-        - "aio/content/guide/singleton-services.md"
-        - "aio/content/guide/dependency-injection-pattern.md"
-        - "aio/content/guide/providers.md"
-        - "aio/content/examples/providers/*"
-        - "aio/content/guide/component-interaction.md"
-        - "aio/content/examples/component-interaction/*"
-        - "aio/content/images/guide/component-interaction/*"
-        - "aio/content/guide/component-styles.md"
-        - "aio/content/examples/component-styles/*"
-        - "aio/content/guide/lifecycle-hooks.md"
-        - "aio/content/examples/lifecycle-hooks/*"
-        - "aio/content/images/guide/lifecycle-hooks/*"
-        - "aio/content/examples/ngcontainer/*"
-        - "aio/content/images/guide/ngcontainer/*"
-        - "aio/content/guide/pipes.md"
-        - "aio/content/examples/pipes/*"
-        - "aio/content/images/guide/pipes/*"
-        - "aio/content/guide/entry-components.md"
-        - "aio/content/guide/set-document-title.md"
-        - "aio/content/examples/set-document-title/*"
-        - "aio/content/images/guide/set-document-title/*"
-        - "aio/content/guide/ngmodules.md"
-        - "aio/content/examples/ngmodules/*"
-        - "aio/content/examples/ngmodule/*"
-        - "aio/content/images/guide/ngmodule/*"
-        - "aio/content/guide/ngmodule-faq.md"
-        - "aio/content/examples/ngmodule-faq/*"
-        - "aio/content/guide/module-types.md"
-        - "aio/content/guide/sharing-ngmodules.md"
-        - "aio/content/guide/frequent-ngmodules.md"
-        - "aio/content/images/guide/frequent-ngmodules/*"
-        - "aio/content/guide/ngmodule-api.md"
-        - "aio/content/guide/ngmodule-vs-jsmodule.md"
-        - "aio/content/guide/feature-modules.md"
-        - "aio/content/examples/feature-modules/*"
-        - "aio/content/images/guide/feature-modules/*"
-        - "aio/content/guide/lazy-loading-ngmodules.md"
-        - "aio/content/examples/lazy-loading-ngmodules/*"
-        - "aio/content/images/guide/lazy-loading-ngmodules"
-    users:
-      - mhevery #primary
-      - jasonaden
-      - kara
-      - IgorMinar
-      - jenniferfell #docs only
+      - >
+        contains_any_globs(files, [
+          '.pullapprove.yml'
+        ])
+    reviewers:
+      users:
+        - ~alxhub
+        - ~AndrewKushnir
+        - andrewseguin
+        - dgp1130
+        - ~thePunderWoman
+        - josephperrott
 
-  animations:
-    conditions:
-      files:
-        - "packages/animations/*"
-        - "packages/platform-browser/animations/*"
-        - "aio/content/guide/animations.md"
-        - "aio/content/examples/animations/*"
-        - "aio/content/images/guide/animations/*"
-    users:
-      - matsko #primary
-      - mhevery #fallback
-      - IgorMinar #fallback
-      - jenniferfell #docs only
-      - kara
+  # =========================================================
+  #  Primitives
+  # =========================================================
 
-  compiler/i18n:
+  # Angular team required reviews
+  primitives:
+    <<: *defaults
     conditions:
-      files:
-        - "packages/compiler/src/i18n/*"
-        - "aio/content/guide/i18n.md"
-        - "aio/content/examples/i18n/*"
-    users:
-      - alxhub #primary
-      - IgorMinar #fallback
-      - mhevery #fallback
-      - jenniferfell #docs only
-      - kara
+      - >
+        contains_any_globs(files, [
+          'packages/core/primitives/**/{*,.*}',
+        ])
+    reviewers:
+      users:
+        - ~pkozlowski-opensource # Pawel Kozlowski
+        - ~alxhub # Alex Rickabaugh
+        - ~thePunderWoman # Jessica Janiuk
+        - ~AndrewKushnir # Andrew Kushnir
+        - atscott # Andrew Scott
+        - rahatarmanahmed # Rahat Ahmed
+        - e-cline # Ethan Cline
+        - rockymeza # Rocky Meza
 
-  compiler:
-    conditions:
-      files:
-        - "packages/compiler/*"
-        - "aio/content/guide/aot-compiler.md"
-    users:
-      - alxhub #primary
-      - mhevery
-      - IgorMinar #fallback
-      - jenniferfell #docs only
-      - kara
+  ####################################################################################
+  # Override managed result groups
+  #
+  # Groups which are only used to determine the value of an override are managed at
+  # the bottom of the list as they will set a status on the PR directly, they
+  # therefore can always be process last without concern.
+  ####################################################################################
 
-  compiler-cli/ngtools:
-    conditions:
-      files:
-        - "packages/compiler-cli/src/ngtools*"
-    users:
-      - hansl
-      - filipesilva #fallback
-      - IgorMinar #fallback
-      - kara
+  # =========================================================
+  # Global Approvers
+  #
+  # All reviews performed for global approvals require using
+  # the `Reviewed-for:` specifier to set the approval
+  # specificity as documented at:
+  # https://docs.pullapprove.com/reviewed-for/
+  # =========================================================
+  global-approvers:
+    type: optional
+    reviewers:
+      users:
+        - alxhub
+        - josephperrott
+    reviews:
+      request: 0
+      required: 1
+      reviewed_for: required
 
-  compiler-cli:
-    conditions:
-      files:
-        include:
-          - "packages/compiler-cli/*"
-          - "packages/bazel/*"
-        exclude:
-          - "packages/compiler-cli/src/ngtools*"
-    users:
-      - alexeagle
-      - alxhub
-      - IgorMinar #fallback
-      - mhevery #fallback
-      - kara
-
-  common:
-    conditions:
-      files:
-        include:
-          - "packages/common/*"
-        exclude:
-          - "packages/common/http/*"
-    users:
-      - pkozlowski-opensource #primary
-      - IgorMinar #fallback
-      - mhevery #fallback
-      - kara
-
-  forms:
-    conditions:
-      files:
-        - "packages/forms/*"
-        - "aio/content/guide/forms.md"
-        - "aio/content/examples/forms/*"
-        - "aio/content/images/guide/forms/*"
-        - "aio/content/guide/forms-overview.md"
-        - "aio/content/examples/forms-overview/*"
-        - "aio/content/images/guide/forms-overview/*"
-        - "aio/content/guide/form-validation.md"
-        - "aio/content/examples/form-validation/*"
-        - "aio/content/images/guide/form-validation/*"
-        - "aio/content/guide/dynamic-form.md"
-        - "aio/content/examples/dynamic-form/*"
-        - "aio/content/images/guide/dynamic-form/*"
-        - "aio/content/guide/reactive-forms.md"
-        - "aio/content/examples/reactive-forms/*"
-        - "aio/content/images/guide/reactive-forms/*"
-    users:
-      - kara #primary
-      - IgorMinar #fallback
-      - mhevery #fallback
-      - jenniferfell #docs only
-
-  http:
-    conditions:
-      files:
-        - "packages/common/http/*"
-        - "packages/http/*"
-        - "aio/content/guide/http.md"
-        - "aio/content/examples/http/*"
-        - "aio/content/images/guide/http/*"
-    users:
-      - alxhub #primary
-      - IgorMinar
-      - mhevery #fallback
-      - jenniferfell #docs only
-
-  language-service:
-    conditions:
-      files:
-        - "packages/language-service/*"
-        - "aio/content/guide/language-service.md"
-        - "aio/content/images/guide/language-service/*"
-    users:
-      - kyliau #primary
-      # needs secondary
-      - IgorMinar #fallback
-      - mhevery #fallback
-      - jenniferfell #docs only
-
-  router:
-    conditions:
-      files:
-        - "packages/router/*"
-        - "aio/content/guide/router.md"
-        - "aio/content/examples/router/*"
-        - "aio/content/images/guide/router/*"
-    users:
-      - jasonaden #primary
-      - IgorMinar #fallback
-      - mhevery #fallback
-      - jenniferfell #docs only
-      - kara
-
-  testing:
-    conditions:
-      files:
-        - "*/testing/*"
-        - "aio/content/guide/testing.md"
-        - "aio/content/examples/testing/*"
-        - "aio/content/images/guide/testing/*"
-    users:
-      - vikerman
-      - IgorMinar #fallback
-      - mhevery #fallback
-      - jenniferfell #docs only
-
-  upgrade:
-    conditions:
-      files:
-        - "packages/upgrade/*"
-        - "aio/content/guide/upgrade.md"
-        - "aio/content/examples/upgrade-module/*"
-        - "aio/content/images/guide/upgrade/*"
-        - "aio/content/examples/upgrade-phonecat-1-typescript/*"
-        - "aio/content/examples/upgrade-phonecat-2-hybrid/*"
-        - "aio/content/examples/upgrade-phonecat-3-final/*"
-        - "aio/content/guide/upgrade-performance.md"
-        - "aio/content/guide/ajs-quick-reference.md"
-        - "aio/content/examples/ajs-quick-reference/*"
-    users:
-      - petebacondarwin #primary
-      - gkalpak
-      - IgorMinar #fallback
-      - mhevery #fallback
-      - jenniferfell #docs only
-      - kara
-
-  platform-browser:
-    conditions:
-      files:
-        - "packages/platform-browser/*"
-    users:
-      - mhevery #primary
-      # needs secondary
-      - IgorMinar #fallback
-      - kara
-
-  platform-server:
-    conditions:
-      files:
-        - "packages/platform-server/*"
-        - "aio/content/guide/universal.md"
-        - "aio/content/examples/universal/*"
-    users:
-      - vikerman #primary
-      - alxhub #secondary
-      - IgorMinar #fallback
-      - mhevery #fallback
-      - jenniferfell #docs only
-
-  platform-webworker:
-    conditions:
-      files:
-        - "packages/platform-webworker/*"
-    users:
-      - mhevery #primary
-      # needs secondary
-      - IgorMinar #fallback
-      - kara
-
-  service-worker:
-    conditions:
-      files:
-        - "packages/service-worker/*"
-        - "aio/content/guide/service-worker-getting-started.md"
-        - "aio/content/examples/service-worker-getting-started/*"
-        - "aio/content/guide/service-worker-communications.md"
-        - "aio/content/guide/service-worker-config.md"
-        - "aio/content/guide/service-worker-devops.md"
-        - "aio/content/guide/service-worker-intro.md"
-        - "aio/content/images/guide/service-worker/*"
-    users:
-      - gkalpak #primary
-      - alxhub
-      - IgorMinar
-      - mhevery #fallback
-      - jenniferfell #docs only
-
-  elements:
-    conditions:
-      files:
-        - "packages/elements/*"
-        - "aio/content/examples/elements/*"
-        - "aio/content/images/guide/elements/*"
-        - "aio/content/guide/elements.md"
-    users:
-      - andrewseguin #primary
-      - gkalpak
-      - robwormald
-      - IgorMinar #fallback
-      - mhevery #fallback
-      - jenniferfell #docs only
-      - kara
-
-  benchpress:
-    conditions:
-      files:
-        - "packages/benchpress/*"
-    users:
-      - alxhub # primary
-      # needs secondary
-      - IgorMinar #fallback
-      - mhevery #fallback
-
-  docs-infra:
-    conditions:
-      files:
-        include:
-          - "aio/*"
-        exclude:
-          - "aio/content/*"
-    users:
-      - petebacondarwin #primary
-      - IgorMinar
-      - gkalpak
-      - mhevery #fallback
-
-  docs/guide-and-tutorial:
-    conditions:
-      files:
-        include:
-          - "aio/content/*"
-        exclude:
-          - "aio/content/marketing/*"
-          - "aio/content/navigation.json"
-          - "aio/content/license.md"
-    users:
-      - stephenfluin
-      - jenniferfell
-      - brandonroberts
-      - petebacondarwin
-      - gkalpak
-      - IgorMinar
-      - mhevery #fallback
-
-  docs/marketing:
-    conditions:
-      files:
-        include:
-          - "aio/content/marketing/*"
-          - "aio/content/images/marketing/*"
-          - "aio/content/navigation.json"
-          - "aio/content/license.md"
-    users:
-      - stephenfluin
-      - petebacondarwin
-      - gkalpak
-      - IgorMinar
-      - robwormald
-      - mhevery #fallback
-
-  docs/observables:
-    conditions:
-      files:
-        - "aio/content/examples/observables/*"
-        - "aio/content/images/guide/observables/*"
-        - "aio/content/guide/observables.md"
-        - "aio/content/guide/comparing-observables.md"
-        - "aio/content/examples/observables-in-angular/*"
-        - "aio/content/images/guide/observables-in-angular/*"
-        - "aio/content/guide/observables-in-angular.md"
-        - "aio/content/examples/practical-observable-usage/*"
-        - "aio/content/guide/practical-observable-usage.md"
-        - "aio/content/examples/rx-library/*"
-        - "aio/content/guide/rx-library.md"
-    users:
-      - jasonaden
-      - benlesh
-      - IgorMinar
-      - mhevery
-      - jenniferfell #docs only
-
-  docs/packaging:
-    conditions:
-      files:
-        - "aio/content/guide/npm-packages.md"
-        - "aio/content/guide/browser-support.md"
-        - "aio/content/guide/typescript-configuration.md"
-        - "aio/content/guide/setup-systemjs-anatomy.md"
-        - "aio/content/examples/setup/*"
-        - "aio/content/guide/setup.md"
-        - "aio/content/guide/deployment.md"
-        - "aio/content/guide/releases.md"
-        - "aio/content/guide/updating.md"
-    users:
-      - IgorMinar #primary
-      - alexeagle
-      - hansl
-      - mhevery #fallback
-      - jenniferfell #docs only
+  # =========================================================
+  # Require review on all PRs
+  #
+  # All PRs require at least one review.  This rule will not
+  # request any reviewers, however will require that at least
+  # one review is provided before the group is satisfied.
+  # =========================================================
+  required-minimum-review:
+    reviews:
+      request: 0 # Do not request any reviews from the reviewer group
+      required: 1 # Require that all PRs have approval from at least one of the users in the group
+      author_value: 0 # The author of the PR cannot provide an approval for themself
+      reviewed_for: ignored # All reviews apply to this group whether noted via Reviewed-for or not
+    reviewers:
+      teams:
+        # Any member of the team can provide a review to perform the minimum review required
+        - team

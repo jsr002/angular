@@ -1,34 +1,45 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-import {ChangeDetectorRef} from '../change_detection/change_detection';
-import {Injector} from '../di/injector';
-import {Type} from '../type';
+import type {ChangeDetectorRef} from '../change_detection/change_detection';
+import type {Injector} from '../di/injector';
+import type {Type} from '../interface/type';
 
-import {ElementRef} from './element_ref';
-import {NgModuleRef} from './ng_module_factory';
-import {ViewRef} from './view_ref';
+import type {ElementRef} from './element_ref';
+import type {ViewRef} from './view_ref';
 
 /**
  * Represents a component created by a `ComponentFactory`.
  * Provides access to the component instance and related objects,
  * and provides the means of destroying the instance.
  *
+ * @see [Programmatically rendering components](guide/components/programmatic-rendering)
+ *
  * @publicApi
  */
 export abstract class ComponentRef<C> {
   /**
-   * The host or anchor [element](guide/glossary#element) for this component instance.
+   * Updates a specified input name to a new value. Using this method will properly mark for check
+   * component using the `OnPush` change detection strategy. It will also assure that the
+   * `OnChanges` lifecycle hook runs when a dynamically created component is change-detected.
+   *
+   * @param name The name of an input.
+   * @param value The new value of an input.
+   */
+  abstract setInput(name: string, value: unknown): void;
+
+  /**
+   * The host or anchor element for this component instance.
    */
   abstract get location(): ElementRef;
 
   /**
-   * The [dependency injector](guide/glossary#injector) for this component instance.
+   * The dependency injector for this component instance.
    */
   abstract get injector(): Injector;
 
@@ -38,7 +49,7 @@ export abstract class ComponentRef<C> {
   abstract get instance(): C;
 
   /**
-   * The [host view](guide/glossary#view-tree) defined by the template
+   * The host view defined by the template
    * for this component instance.
    */
   abstract get hostView(): ViewRef;
@@ -49,7 +60,7 @@ export abstract class ComponentRef<C> {
   abstract get changeDetectorRef(): ChangeDetectorRef;
 
   /**
-   * The component type.
+   * The type of this component (as created by a `ComponentFactory` class).
    */
   abstract get componentType(): Type<any>;
 
@@ -65,36 +76,4 @@ export abstract class ComponentRef<C> {
    * associated with this component. Called when the `destroy()` method is invoked.
    */
   abstract onDestroy(callback: Function): void;
-}
-
-/**
- * @publicApi
- */
-export abstract class ComponentFactory<C> {
-  /**
-   * The component's HTML selector.
-   */
-  abstract get selector(): string;
-  /**
-   * The component's type
-   */
-  abstract get componentType(): Type<any>;
-  /**
-   * Selector for all <ng-content> elements in the component.
-   */
-  abstract get ngContentSelectors(): string[];
-  /**
-   * The inputs of the component.
-   */
-  abstract get inputs(): {propName: string, templateName: string}[];
-  /**
-   * The outputs of the component.
-   */
-  abstract get outputs(): {propName: string, templateName: string}[];
-  /**
-   * Creates a new component.
-   */
-  abstract create(
-      injector: Injector, projectableNodes?: any[][], rootSelectorOrNode?: string|any,
-      ngModule?: NgModuleRef<any>): ComponentRef<C>;
 }

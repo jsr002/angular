@@ -2,29 +2,54 @@
   "name": "@angular/core",
   "version": "0.0.0-PLACEHOLDER",
   "description": "Angular - the core framework",
-  "main": "./bundles/core.umd.js",
-  "module": "./fesm5/core.js",
-  "es2015": "./fesm2015/core.js",
-  "esm5": "./esm5/core.js",
-  "esm2015": "./esm2015/core.js",
-  "fesm5": "./fesm5/core.js",
-  "fesm2015": "./fesm2015/core.js",
-  "typings": "./core.d.ts",
   "author": "angular",
   "license": "MIT",
+  "engines": {
+    "node": "^22.22.3 || ^24.15.0 || >=26.0.0"
+  },
+  "exports": {
+    "./schematics/*": {
+      "default": "./schematics/*.js"
+    },
+    "./event-dispatch-contract.min.js": {
+      "default": "./event-dispatch-contract.min.js"
+    }
+  },
   "dependencies": {
-    "tslib": "^1.9.0"
+    "tslib": "^2.3.0"
+  },
+  "devDependencies": {
+    "@mcp-b/webmcp-polyfill": "^5.0.0",
+    "webmcp-types": "0.1.10"
   },
   "peerDependencies": {
-    "rxjs": "^6.0.0",
-    "zone.js": "~0.8.26"
+    "@angular/compiler": "0.0.0-PLACEHOLDER",
+    "rxjs": "^6.5.3 || ^7.4.0",
+    "zone.js": "~0.15.0 || ~0.16.0"
+  },
+  "peerDependenciesMeta": {
+    "@angular/compiler": {
+      "optional": true
+    },
+    "zone.js": {
+      "optional": true
+    }
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/angular/angular.git"
+    "url": "https://github.com/angular/angular.git",
+    "directory": "packages/core"
   },
   "ng-update": {
+    "migrations": "./schematics/migrations.json",
     "packageGroup": "NG_UPDATE_PACKAGE_GROUP"
   },
+  "angular": {
+    "bestPractices": {
+      "format": "markdown",
+      "path": "./resources/best-practices.md"
+    }
+  },
+  "schematics": "./schematics/collection.json",
   "sideEffects": false
 }

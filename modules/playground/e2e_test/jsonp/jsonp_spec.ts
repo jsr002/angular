@@ -1,29 +1,45 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-import {verifyNoBrowserErrors} from 'e2e_util/e2e_util';
-import {browser} from 'protractor';
+import * as webdriver from 'selenium-webdriver';
+import {
+  createWebDriver,
+  verifyNoBrowserErrors,
+  waitForAngular,
+} from '../../../../packages/examples/test-utils/index.js';
 
-describe('jsonp', function() {
+describe('jsonp', function () {
+  let driver: webdriver.WebDriver;
+  let baseUrl: string;
 
-  afterEach(verifyNoBrowserErrors);
+  beforeAll(async () => {
+    ({driver, baseUrl} = await createWebDriver());
+  });
 
-  describe('fetching', function() {
-    const URL = 'all/playground/src/jsonp/index.html';
+  afterAll(async () => {
+    await driver.quit();
+  });
 
-    it('should fetch and display people', function() {
-      browser.get(URL);
-      expect(getComponentText('jsonp-app', '.people')).toEqual('hello, caitp');
+  afterEach(async () => {
+    await verifyNoBrowserErrors(driver);
+  });
+
+  describe('fetching', function () {
+    it('should fetch and display people', async function () {
+      await driver.get(`${baseUrl}/`);
+      await waitForAngular(driver);
+      expect(await getComponentText(driver, 'jsonp-app', '.people')).toEqual('hello, caitp');
     });
   });
 });
 
-function getComponentText(selector: string, innerSelector: string) {
-  return browser.executeScript(
-      `return document.querySelector("${selector}").querySelector("${innerSelector}").textContent.trim()`);
+function getComponentText(driver: webdriver.WebDriver, selector: string, innerSelector: string) {
+  return driver.executeScript<string>(
+    `return document.querySelector("${selector}").querySelector("${innerSelector}").textContent.trim()`,
+  );
 }

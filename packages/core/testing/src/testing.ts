@@ -1,9 +1,9 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 /**
@@ -13,11 +13,37 @@
  */
 
 export * from './async';
-export * from './component_fixture';
-export * from './fake_async';
-export {TestBed, getTestBed, inject, InjectSetupWrapper, withModule} from './test_bed';
-export * from './test_bed_common';
-export * from './before_each';
+export {ComponentFixture, DirectiveFixture} from './fixture';
+export {
+  resetFakeAsyncZone,
+  discardPeriodicTasks,
+  fakeAsync,
+  flush,
+  flushMicrotasks,
+  tick,
+} from './fake_async';
+export {
+  TestBed,
+  getTestBed,
+  TestBedStatic,
+  inject,
+  InjectSetupWrapper,
+  withModule,
+  TestComponentOptions,
+  TestDirectiveOptions,
+} from './test_bed';
+export {
+  TestComponentRenderer,
+  ComponentFixtureAutoDetect,
+  ComponentFixtureNoNgZone,
+  TestModuleMetadata,
+  TestEnvironmentOptions,
+  ModuleTeardownOptions,
+} from './test_bed_common';
 export * from './metadata_override';
 export {MetadataOverrider as ɵMetadataOverrider} from './metadata_overrider';
-export * from './private_export_testing';
+export {
+  ɵDeferBlockBehavior as DeferBlockBehavior,
+  ɵDeferBlockState as DeferBlockState,
+} from '../../src/core';
+export {DeferBlockFixture} from './defer';

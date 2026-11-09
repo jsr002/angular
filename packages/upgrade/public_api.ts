@@ -1,18 +1,19 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 /**
  * @module
  * @description
+ *
+ * @deprecated Use the entry from `@angular/upgrade/static` instead.
  * Entry point for all public APIs of this package. allowing
  * Angular 1 and Angular 2+ to run side by side in the same application.
  */
-export {VERSION} from './src/common/version';
-export {UpgradeAdapter, UpgradeAdapterRef} from './src/dynamic/upgrade_adapter';
+export {VERSION} from './src/common/src/version';
 
 // This file only re-exports content of the `src` folder. Keep it that way.

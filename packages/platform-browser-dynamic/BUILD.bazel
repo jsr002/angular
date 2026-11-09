@@ -1,8 +1,8 @@
+load("//tools:defaults.bzl", "api_golden_test_npm_package", "ng_package", "ng_project")
+
 package(default_visibility = ["//visibility:public"])
 
-load("//tools:defaults.bzl", "ng_module", "ng_package")
-
-ng_module(
+ng_project(
     name = "platform-browser-dynamic",
     srcs = glob(
         [
@@ -10,7 +10,6 @@ ng_module(
             "src/**/*.ts",
         ],
     ),
-    module_name = "@angular/platform-browser-dynamic",
     deps = [
         "//packages:types",
         "//packages/common",
@@ -21,17 +20,45 @@ ng_module(
 )
 
 ng_package(
-    name = "npm_package",
     srcs = [
         "package.json",
-        "//packages/platform-browser-dynamic/testing:package.json",
     ],
-    entry_point = "packages/platform-browser-dynamic/index.js",
+    package = "@angular/platform-browser-dynamic",
+    side_effect_entry_points = [
+        "@angular/platform-browser-dynamic",
+        "@angular/platform-browser-dynamic/testing",
+    ],
     tags = [
         "release-with-framework",
+    ],
+    # Do not add more to this list.
+    # Dependencies on the full npm_package cause long re-builds.
+    visibility = [
+        "//adev:__pkg__",
+        "//integration:__subpackages__",
+        "//modules/ssr-benchmarks:__subpackages__",
+        "//packages/compiler-cli/integrationtest:__pkg__",
     ],
     deps = [
         ":platform-browser-dynamic",
         "//packages/platform-browser-dynamic/testing",
     ],
+)
+
+api_golden_test_npm_package(
+    name = "platform-browser-dynamic_api",
+    data = [
+        ":npm_package",
+        "//goldens:public-api",
+    ],
+    golden_dir = "goldens/public-api/platform-browser-dynamic",
+    npm_package = "packages/platform-browser-dynamic/npm_package",
+)
+
+filegroup(
+    name = "files_for_docgen",
+    srcs = glob([
+        "*.ts",
+        "src/**/*.ts",
+    ]) + ["PACKAGE.md"],
 )

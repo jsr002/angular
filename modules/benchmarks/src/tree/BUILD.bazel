@@ -1,28 +1,65 @@
+load("//tools:defaults.bzl", "ts_project")
+
 package(default_visibility = ["//visibility:public"])
 
-load("//tools:defaults.bzl", "ts_library")
-
-ts_library(
+ts_project(
     name = "util_lib",
-    srcs = [
-        "util.ts",
-    ],
+    srcs = ["util.ts"],
+    tsconfig = "//modules/benchmarks:tsconfig_e2e",
+    deps = ["//modules/benchmarks/src:util_lib"],
+)
+
+ts_project(
+    name = "test_utils_lib",
+    testonly = 1,
+    srcs = ["test_utils.ts"],
+    tsconfig = "//modules/benchmarks:tsconfig_e2e",
     deps = [
-        "//modules/benchmarks/src:util_lib",
-        "//packages:types",
-        "//packages/core",
+        "//modules:node_modules/protractor",
+        "//modules/utilities",
     ],
 )
 
-ts_library(
-    name = "perf_lib",
+ts_project(
+    name = "perf_tests_lib",
     testonly = 1,
-    srcs = [
-        "tree_perf.spec.ts",
-    ],
+    srcs = ["tree.perf-spec.ts"],
+    tsconfig = "//modules/benchmarks:tsconfig_e2e",
     deps = [
-        "//modules/e2e_util:lib",
-        "//packages:types",
-        "@ngdeps//protractor",
+        ":test_utils_lib",
+        "//modules:node_modules/protractor",
+    ],
+)
+
+ts_project(
+    name = "e2e_tests_lib",
+    testonly = 1,
+    srcs = ["tree.e2e-spec.ts"],
+    tsconfig = "//modules/benchmarks:tsconfig_e2e",
+    deps = [
+        ":test_utils_lib",
+        "//modules:node_modules/protractor",
+    ],
+)
+
+ts_project(
+    name = "detect_changes_perf_tests_lib",
+    testonly = 1,
+    srcs = ["tree_detect_changes.perf-spec.ts"],
+    tsconfig = "//modules/benchmarks:tsconfig_e2e",
+    deps = [
+        ":test_utils_lib",
+        "//modules:node_modules/protractor",
+    ],
+)
+
+ts_project(
+    name = "detect_changes_e2e_tests_lib",
+    testonly = 1,
+    srcs = ["tree_detect_changes.e2e-spec.ts"],
+    tsconfig = "//modules/benchmarks:tsconfig_e2e",
+    deps = [
+        ":test_utils_lib",
+        "//modules:node_modules/protractor",
     ],
 )

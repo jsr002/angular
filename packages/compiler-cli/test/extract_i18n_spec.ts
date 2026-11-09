@@ -1,24 +1,17 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as ts from 'typescript';
 
 import {mainXi18n} from '../src/extract_i18n';
 
-import {isInBazel, makeTempDir, setup} from './test_support';
-
-function getNgRootDir() {
-  const moduleFilename = module.filename.replace(/\\/g, '/');
-  const distIndex = moduleFilename.indexOf('/dist/all');
-  return moduleFilename.substr(0, distIndex);
-}
+import {setup} from './test_support';
 
 const EXPECTED_XMB = `<?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE messagebundle [
@@ -42,7 +35,7 @@ const EXPECTED_XMB = `<?xml version="1.0" encoding="UTF-8" ?>
 
 <!ELEMENT ex (#PCDATA)>
 ]>
-<messagebundle>
+<messagebundle handler="angular">
   <msg id="8136548302122759730" desc="desc" meaning="meaning"><source>src/basic.html:1</source><source>src/comp2.ts:1</source><source>src/basic.html:1</source>translate me</msg>
   <msg id="9038505069473852515"><source>src/basic.html:3,4</source><source>src/comp2.ts:3,4</source><source>src/comp2.ts:2,3</source><source>src/basic.html:3,4</source>
     Welcome</msg>
@@ -50,7 +43,7 @@ const EXPECTED_XMB = `<?xml version="1.0" encoding="UTF-8" ?>
   <msg id="5811701742971715242" desc="with ICU and other things"><source>src/icu.html:4,6</source>
      foo <ph name="ICU"><ex>{ count, plural, =1 {...} other {...}}</ex>{ count, plural, =1 {...} other {...}}</ph>
     </msg>
-  <msg id="7254052530614200029" desc="with placeholders"><source>src/placeholders.html:1</source>Name: <ph name="START_BOLD_TEXT"><ex>&lt;b&gt;</ex>&lt;b&gt;</ph><ph name="NAME"><ex>{{
+  <msg id="7254052530614200029" desc="with placeholders"><source>src/placeholders.html:1,3</source>Name: <ph name="START_BOLD_TEXT"><ex>&lt;b&gt;</ex>&lt;b&gt;</ph><ph name="NAME"><ex>{{
       name // i18n(ph=&quot;name&quot;)
     }}</ex>{{
       name // i18n(ph=&quot;name&quot;)
@@ -190,7 +183,7 @@ const EXPECTED_XLIFF2 = `<?xml version="1.0" encoding="UTF-8" ?>
     <unit id="7254052530614200029">
       <notes>
         <note category="description">with placeholders</note>
-        <note category="location">src/placeholders.html:1</note>
+        <note category="location">src/placeholders.html:1,3</note>
       </notes>
       <segment>
         <source>Name: <pc id="0" equivStart="START_BOLD_TEXT" equivEnd="CLOSE_BOLD_TEXT" type="fmt" dispStart="&lt;b&gt;" dispEnd="&lt;/b&gt;"><ph id="1" equiv="NAME" disp="{{
@@ -206,7 +199,7 @@ describe('extract_i18n command line', () => {
   let basePath: string;
   let outDir: string;
   let write: (fileName: string, content: string) => void;
-  let errorSpy: jasmine.Spy&((s: string) => void);
+  let errorSpy: jasmine.Spy & ((s: string) => void);
 
   function writeConfig(tsconfig = '{"extends": "./tsconfig-base.json"}') {
     write('tsconfig.json', tsconfig);
@@ -214,32 +207,15 @@ describe('extract_i18n command line', () => {
 
   beforeEach(() => {
     errorSpy = jasmine.createSpy('consoleError').and.callFake(console.error);
-    if (isInBazel()) {
-      const support = setup();
-      write = (fileName: string, content: string) => { support.write(fileName, content); };
-      basePath = support.basePath;
-      outDir = path.join(basePath, 'built');
-    } else {
-      basePath = makeTempDir();
-      write = (fileName: string, content: string) => {
-        const dir = path.dirname(fileName);
-        if (dir !== '.') {
-          const newDir = path.join(basePath, dir);
-          if (!fs.existsSync(newDir)) fs.mkdirSync(newDir);
-        }
-        fs.writeFileSync(path.join(basePath, fileName), content, {encoding: 'utf-8'});
-      };
-      outDir = path.resolve(basePath, 'built');
-      const ngRootDir = getNgRootDir();
-      const nodeModulesPath = path.resolve(basePath, 'node_modules');
-      fs.mkdirSync(nodeModulesPath);
-      fs.symlinkSync(
-          path.resolve(ngRootDir, 'dist', 'all', '@angular'),
-          path.resolve(nodeModulesPath, '@angular'));
-      fs.symlinkSync(
-          path.resolve(ngRootDir, 'node_modules', 'rxjs'), path.resolve(nodeModulesPath, 'rxjs'));
-    }
-    write('tsconfig-base.json', `{
+    const support = setup();
+    write = (fileName: string, content: string) => {
+      support.write(fileName, content);
+    };
+    basePath = support.basePath;
+    outDir = path.join(basePath, 'built');
+    write(
+      'tsconfig-base.json',
+      `{
       "compilerOptions": {
         "experimentalDecorators": true,
         "skipLibCheck": true,
@@ -247,15 +223,15 @@ describe('extract_i18n command line', () => {
         "types": [],
         "outDir": "built",
         "rootDir": ".",
-        "baseUrl": ".",
         "declaration": true,
-        "target": "es5",
-        "module": "es2015",
-        "moduleResolution": "node",
-        "lib": ["es6", "dom"],
+        "target": "es2015",
+        "module": "nodenext",
+        "moduleResolution": "nodenext",
+        "lib": ["es2015", "dom"],
         "typeRoots": ["node_modules/@types"]
       }
-    }`);
+    }`,
+    );
   });
 
   function writeSources() {
@@ -263,72 +239,104 @@ describe('extract_i18n command line', () => {
     <!--i18n-->
     Welcome<!--/i18n-->
     `;
-    write('src/basic.html', `<div title="translate me" i18n-title="meaning|desc"></div>
-         <p id="welcomeMessage">${welcomeMessage}</p>`);
+    write(
+      'src/basic.html',
+      `<div title="translate me" i18n-title="meaning|desc"></div>
+         <p id="welcomeMessage">${welcomeMessage}</p>`,
+    );
 
-    write('src/comp1.ts', `
+    write(
+      'src/comp1.ts',
+      `
     import {Component} from '@angular/core';
 
     @Component({
       selector: 'basic',
       templateUrl: './basic.html',
+      standalone: false,
     })
-    export class BasicCmp1 {}`);
+    export class BasicCmp1 {}`,
+    );
 
-    write('src/comp2.ts', `
+    write(
+      'src/comp2.ts',
+      `
     import {Component} from '@angular/core';
 
     @Component({
       selector: 'basic2',
       template: \`<div title="translate me" i18n-title="meaning|desc"></div>
       <p id="welcomeMessage">${welcomeMessage}</p>\`,
+      standalone: false,
     })
     export class BasicCmp2 {}
     @Component({
       selector: 'basic4',
       template: \`<p id="welcomeMessage">${welcomeMessage}</p>\`,
+      standalone: false,
     })
-    export class BasicCmp4 {}`);
+    export class BasicCmp4 {}`,
+    );
 
-    write('src/comp3.ts', `
+    write(
+      'src/comp3.ts',
+      `
     import {Component} from '@angular/core';
 
     @Component({
       selector: 'basic3',
       templateUrl: './basic.html',
+      standalone: false,
     })
-    export class BasicCmp3 {}`);
+    export class BasicCmp3 {}`,
+    );
 
-    write('src/placeholders.html', `<div i18n="with placeholders">Name: <b>{{
+    write(
+      'src/placeholders.html',
+      `<div i18n="with placeholders">Name: <b>{{
       name // i18n(ph="name")
-    }}</b></div>`);
+    }}</b></div>`,
+    );
 
-    write('src/placeholder_cmp.ts', `
+    write(
+      'src/placeholder_cmp.ts',
+      `
     import {Component} from '@angular/core';
 
     @Component({
       selector: 'placeholders',
       templateUrl: './placeholders.html',
+      standalone: false,
     })
-    export class PlaceholderCmp { name = 'whatever'; }`);
+    export class PlaceholderCmp { name = 'whatever'; }`,
+    );
 
-    write('src/icu.html', `<div i18n="with ICU">{
+    write(
+      'src/icu.html',
+      `<div i18n="with ICU">{
       count, plural, =1 {book} other {books}
     }</div>
     <div i18n="with ICU and other things">
      foo { count, plural, =1 {book} other {books} }
-    </div>`);
+    </div>`,
+    );
 
-    write('src/icu_cmp.ts', `
+    write(
+      'src/icu_cmp.ts',
+      `
     import {Component} from '@angular/core';
 
     @Component({
       selector: 'icu',
       templateUrl: './icu.html',
+      standalone: false,
     })
-    export class IcuCmp { count = 3; }`);
+    export class IcuCmp { count = 3; }`,
+    );
 
-    write('src/module.ts', `
+    write(
+      'src/module.ts',
+      `
     import {NgModule} from '@angular/core';
     import {CommonModule} from '@angular/common';
     import {BasicCmp1} from './comp1';
@@ -349,15 +357,18 @@ describe('extract_i18n command line', () => {
       imports: [CommonModule],
     })
     export class I18nModule {}
-    `);
+    `,
+    );
   }
 
   it('should extract xmb', () => {
     writeConfig();
     writeSources();
 
-    const exitCode =
-        mainXi18n(['-p', basePath, '--i18nFormat=xmb', '--outFile=custom_file.xmb'], errorSpy);
+    const exitCode = mainXi18n(
+      ['-p', basePath, '--i18nFormat=xmb', '--outFile=custom_file.xmb'],
+      errorSpy,
+    );
     expect(errorSpy).not.toHaveBeenCalled();
     expect(exitCode).toBe(0);
 
@@ -385,8 +396,10 @@ describe('extract_i18n command line', () => {
     writeConfig();
     writeSources();
 
-    const exitCode =
-        mainXi18n(['-p', basePath, '--i18nFormat=xlf2', '--outFile=messages.xliff2.xlf'], errorSpy);
+    const exitCode = mainXi18n(
+      ['-p', basePath, '--i18nFormat=xlf2', '--outFile=messages.xliff2.xlf'],
+      errorSpy,
+    );
     expect(errorSpy).not.toHaveBeenCalled();
     expect(exitCode).toBe(0);
 
@@ -400,8 +413,10 @@ describe('extract_i18n command line', () => {
     writeConfig();
     writeSources();
 
-    const exitCode =
-        mainXi18n(['-p', basePath, '--i18nFormat=xlf2', '--outFile=messages.xliff2.xlf'], errorSpy);
+    const exitCode = mainXi18n(
+      ['-p', basePath, '--i18nFormat=xlf2', '--outFile=messages.xliff2.xlf'],
+      errorSpy,
+    );
     expect(errorSpy).not.toHaveBeenCalled();
     expect(exitCode).toBe(0);
 

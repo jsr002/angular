@@ -1,14 +1,57 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-import {ERROR_ORIGINAL_ERROR, getDebugContext, getErrorLogger, getOriginalError} from './errors';
+import {ENVIRONMENT_INITIALIZER} from './di/initializer_token';
+import {InjectionToken} from './di/injection_token';
+import {inject} from './di/injector_compatibility';
+import type {EnvironmentProviders} from './di/interface/provider';
+import {makeEnvironmentProviders, provideEnvironmentInitializer} from './di/provider_collection';
+import {EnvironmentInjector} from './di/r3_injector';
+import {DOCUMENT} from './document';
+import {RuntimeError, RuntimeErrorCode} from './errors';
+import {DestroyRef} from './linker/destroy_ref';
+import {NgZone} from './zone/ng_zone';
 
+import {Type} from './interface/type';
 
+/**
+ * Error details caught by the error boundary
+ *
+ * @developerPreview 22.2
+ */
+export interface ErrorDetails {
+  /**
+   * The class of the component or directive where the error occurred.
+   */
+  readonly declarationType: Type<unknown>;
+  /**
+   * The instance of the component or directive where the error occurred.
+   */
+  readonly declarationInstance: unknown;
+  /**
+   * Information about the error boundary that caught the error.
+   */
+  readonly boundary?: {
+    /**
+     * The component where the error boundary that caught the rendering error was located
+     */
+    readonly type: Type<unknown>;
+
+    /**
+     * Call this method to retry rendering the error boundary.
+     */
+    readonly reset: () => void;
+  };
+  /**
+   * The function that intercepted the error, if any.
+   */
+  readonly caughtBy?: Function;
+}
 
 /**
  * Provides a hook for centralized exception handling.
@@ -20,13 +63,19 @@ import {ERROR_ORIGINAL_ERROR, getDebugContext, getErrorLogger, getOriginalError}
  * @usageNotes
  * ### Example
  *
- * ```
+ * ```ts
  * class MyErrorHandler implements ErrorHandler {
  *   handleError(error) {
  *     // do something with the exception
  *   }
  * }
  *
+ * // Provide in standalone apps
+ * bootstrapApplication(AppComponent, {
+ *   providers: [{provide: ErrorHandler, useClass: MyErrorHandler}]
+ * })
+ *
+ * // Provide in module-based apps
  * @NgModule({
  *   providers: [{provide: ErrorHandler, useClass: MyErrorHandler}]
  * })
@@ -34,6 +83,9 @@ import {ERROR_ORIGINAL_ERROR, getDebugContext, getErrorLogger, getOriginalError}
  * ```
  *
  * @publicApi
+ *
+ * @see [Unhandled errors in Angular](best-practices/error-handling)
+ *
  */
 export class ErrorHandler {
   /**
@@ -42,46 +94,160 @@ export class ErrorHandler {
   _console: Console = console;
 
   handleError(error: any): void {
-    const originalError = this._findOriginalError(error);
-    const context = this._findContext(error);
-    // Note: Browser consoles show the place from where console.error was called.
-    // We can use this to give users additional information about the error.
-    const errorLogger = getErrorLogger(error);
-
-    errorLogger(this._console, `ERROR`, error);
-    if (originalError) {
-      errorLogger(this._console, `ORIGINAL ERROR`, originalError);
-    }
-    if (context) {
-      errorLogger(this._console, 'ERROR CONTEXT', context);
-    }
+    this._console.error('ERROR', error);
   }
 
-  /** @internal */
-  _findContext(error: any): any {
-    if (error) {
-      return getDebugContext(error) ? getDebugContext(error) :
-                                      this._findContext(getOriginalError(error));
-    }
+  /**
+   * Callback to handle errors happening during the rendering of a component/directive view.
+   *
+   * @param error The error that was thrown.
+   * @param details Additional information about the error.
+   */
+  onViewError?(error: Error, details: ErrorDetails): void;
+}
 
-    return null;
+export function encapsulateBoundaryError(error: unknown): Error {
+  if (isErrorLike(error)) {
+    return error;
   }
+  return new ErrorBoundaryWrappedError(error);
+}
 
-  /** @internal */
-  _findOriginalError(error: Error): any {
-    let e = getOriginalError(error);
-    while (e && getOriginalError(e)) {
-      e = getOriginalError(e);
-    }
+export function isErrorLike(error: unknown): error is Error {
+  return (
+    error instanceof Error ||
+    (typeof error === 'object' &&
+      error !== null &&
+      typeof (error as Error).name === 'string' &&
+      typeof (error as Error).message === 'string')
+  );
+}
 
-    return e;
+/**
+ * Error thrown when an error boundary catches an error that is not an `Error` instance.
+ *
+ * @publicApi 22.2
+ */
+export class ErrorBoundaryWrappedError extends Error {
+  constructor(error: unknown) {
+    super(
+      typeof ngDevMode !== 'undefined' && ngDevMode
+        ? `Error boundary caught an error that's not an Error instance: ${String(error)}. Check this error's .cause for the actual error.`
+        : String(error),
+      {cause: error},
+    );
+    this.name = 'ErrorBoundaryWrappedError';
   }
 }
 
-export function wrappedError(message: string, originalError: any): Error {
-  const msg =
-      `${message} caused by: ${originalError instanceof Error ? originalError.message: originalError }`;
-  const error = Error(msg);
-  (error as any)[ERROR_ORIGINAL_ERROR] = originalError;
-  return error;
+/**
+ * `InjectionToken` used to configure how to call the `ErrorHandler`.
+ */
+export const INTERNAL_APPLICATION_ERROR_HANDLER = new InjectionToken<(e: any) => void>(
+  typeof ngDevMode === 'undefined' || ngDevMode ? 'internal error handler' : '',
+  {
+    factory: () => {
+      // The user's error handler may depend on things that create a circular dependency
+      // so we inject it lazily.
+      const zone = inject(NgZone);
+      const injector = inject(EnvironmentInjector);
+      let userErrorHandler: ErrorHandler;
+      return (e: unknown) => {
+        zone.runOutsideAngular(() => {
+          if (injector.destroyed && !userErrorHandler) {
+            setTimeout(() => {
+              throw e;
+            });
+          } else {
+            userErrorHandler ??= injector.get(ErrorHandler);
+            userErrorHandler.handleError(e);
+          }
+        });
+      };
+    },
+  },
+);
+
+export const errorHandlerEnvironmentInitializer = {
+  provide: ENVIRONMENT_INITIALIZER,
+  useValue: () => {
+    const handler = inject(ErrorHandler, {optional: true});
+    if ((typeof ngDevMode === 'undefined' || ngDevMode) && handler === null) {
+      throw new RuntimeError(
+        RuntimeErrorCode.MISSING_REQUIRED_INJECTABLE_IN_BOOTSTRAP,
+        `A required Injectable was not found in the dependency injection tree. ` +
+          'If you are bootstrapping an NgModule, make sure that the `BrowserModule` is imported.',
+      );
+    }
+  },
+  multi: true,
+};
+
+const globalErrorListeners = new InjectionToken<void>(
+  typeof ngDevMode !== 'undefined' && ngDevMode ? 'GlobalErrorListeners' : '',
+  {
+    factory: () => {
+      if (typeof ngServerMode !== 'undefined' && ngServerMode) {
+        return;
+      }
+      const window = inject(DOCUMENT).defaultView;
+      if (!window) {
+        return;
+      }
+
+      const errorHandler = inject(INTERNAL_APPLICATION_ERROR_HANDLER);
+      const rejectionListener = (e: PromiseRejectionEvent) => {
+        errorHandler(e.reason);
+        e.preventDefault();
+      };
+      const errorListener = (e: ErrorEvent) => {
+        if (e.error) {
+          errorHandler(e.error);
+        } else {
+          errorHandler(
+            new Error(
+              ngDevMode
+                ? `An ErrorEvent with no error occurred. See Error.cause for details: ${e.message}`
+                : e.message,
+              {cause: e},
+            ),
+          );
+        }
+        e.preventDefault();
+      };
+
+      const setupEventListeners = () => {
+        window.addEventListener('unhandledrejection', rejectionListener);
+        window.addEventListener('error', errorListener);
+      };
+
+      // Angular doesn't have to run change detection whenever any asynchronous tasks are invoked in
+      // the scope of this functionality.
+      if (typeof Zone !== 'undefined') {
+        Zone.root.run(setupEventListeners);
+      } else {
+        setupEventListeners();
+      }
+
+      inject(DestroyRef).onDestroy(() => {
+        window.removeEventListener('error', errorListener);
+        window.removeEventListener('unhandledrejection', rejectionListener);
+      });
+    },
+  },
+);
+
+/**
+ * Provides an environment initializer which forwards unhandled errors to the ErrorHandler.
+ *
+ * The listeners added are for the window's 'unhandledrejection' and 'error' events.
+ *
+ * @see [Global error listeners](best-practices/error-handling#global-error-listeners)
+ *
+ * @publicApi
+ */
+export function provideBrowserGlobalErrorListeners(): EnvironmentProviders {
+  return makeEnvironmentProviders([
+    provideEnvironmentInitializer(() => void inject(globalErrorListeners)),
+  ]);
 }

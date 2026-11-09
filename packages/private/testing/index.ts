@@ -1,11 +1,11 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-export * from './src/render3';
-export * from './src/goog_get_msg';
-export * from './src/ivy_test_selectors';
+export * from './src/utils';
+export * from './src/browser_utils';
+export * from './src/globals';

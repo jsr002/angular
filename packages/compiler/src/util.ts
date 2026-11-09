@@ -1,15 +1,12 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-import {ConstantPool} from './constant_pool';
-
-import * as o from './output/output_ast';
-import {ParseError} from './parse_util';
+import {ChangeDetectionStrategy} from '../src/core';
 
 const DASH_CASE_REGEXP = /-+([a-z0-9])/g;
 
@@ -17,101 +14,26 @@ export function dashCaseToCamelCase(input: string): string {
   return input.replace(DASH_CASE_REGEXP, (...m: any[]) => m[1].toUpperCase());
 }
 
-export function splitAtColon(input: string, defaultValues: string[]): string[] {
+export function splitAtColon(input: string, defaultValues: (string | null)[]): (string | null)[] {
   return _splitAt(input, ':', defaultValues);
 }
 
-export function splitAtPeriod(input: string, defaultValues: string[]): string[] {
+export function splitAtPeriod(input: string, defaultValues: (string | null)[]): (string | null)[] {
   return _splitAt(input, '.', defaultValues);
 }
 
-function _splitAt(input: string, character: string, defaultValues: string[]): string[] {
+function _splitAt(
+  input: string,
+  character: string,
+  defaultValues: (string | null)[],
+): (string | null)[] {
   const characterIndex = input.indexOf(character);
   if (characterIndex == -1) return defaultValues;
   return [input.slice(0, characterIndex).trim(), input.slice(characterIndex + 1).trim()];
 }
 
-export function visitValue(value: any, visitor: ValueVisitor, context: any): any {
-  if (Array.isArray(value)) {
-    return visitor.visitArray(<any[]>value, context);
-  }
-
-  if (isStrictStringMap(value)) {
-    return visitor.visitStringMap(<{[key: string]: any}>value, context);
-  }
-
-  if (value == null || typeof value == 'string' || typeof value == 'number' ||
-      typeof value == 'boolean') {
-    return visitor.visitPrimitive(value, context);
-  }
-
-  return visitor.visitOther(value, context);
-}
-
-export function isDefined(val: any): boolean {
-  return val !== null && val !== undefined;
-}
-
 export function noUndefined<T>(val: T | undefined): T {
-  return val === undefined ? null ! : val;
-}
-
-export interface ValueVisitor {
-  visitArray(arr: any[], context: any): any;
-  visitStringMap(map: {[key: string]: any}, context: any): any;
-  visitPrimitive(value: any, context: any): any;
-  visitOther(value: any, context: any): any;
-}
-
-export class ValueTransformer implements ValueVisitor {
-  visitArray(arr: any[], context: any): any {
-    return arr.map(value => visitValue(value, this, context));
-  }
-  visitStringMap(map: {[key: string]: any}, context: any): any {
-    const result: {[key: string]: any} = {};
-    Object.keys(map).forEach(key => { result[key] = visitValue(map[key], this, context); });
-    return result;
-  }
-  visitPrimitive(value: any, context: any): any { return value; }
-  visitOther(value: any, context: any): any { return value; }
-}
-
-export type SyncAsync<T> = T | Promise<T>;
-
-export const SyncAsync = {
-  assertSync: <T>(value: SyncAsync<T>): T => {
-    if (isPromise(value)) {
-      throw new Error(`Illegal state: value cannot be a promise`);
-    }
-    return value;
-  },
-  then: <T, R>(value: SyncAsync<T>, cb: (value: T) => R | Promise<R>| SyncAsync<R>):
-            SyncAsync<R> => { return isPromise(value) ? value.then(cb) : cb(value);},
-  all: <T>(syncAsyncValues: SyncAsync<T>[]): SyncAsync<T[]> => {
-    return syncAsyncValues.some(isPromise) ? Promise.all(syncAsyncValues) : syncAsyncValues as T[];
-  }
-};
-
-export function error(msg: string): never {
-  throw new Error(`Internal Error: ${msg}`);
-}
-
-export function syntaxError(msg: string, parseErrors?: ParseError[]): Error {
-  const error = Error(msg);
-  (error as any)[ERROR_SYNTAX_ERROR] = true;
-  if (parseErrors) (error as any)[ERROR_PARSE_ERRORS] = parseErrors;
-  return error;
-}
-
-const ERROR_SYNTAX_ERROR = 'ngSyntaxError';
-const ERROR_PARSE_ERRORS = 'ngParseErrors';
-
-export function isSyntaxError(error: Error): boolean {
-  return (error as any)[ERROR_SYNTAX_ERROR];
-}
-
-export function getParseErrors(error: Error): ParseError[] {
-  return (error as any)[ERROR_PARSE_ERRORS] || [];
+  return val === undefined ? null! : val;
 }
 
 // Escape characters that have a special meaning in Regular Expressions
@@ -119,19 +41,16 @@ export function escapeRegExp(s: string): string {
   return s.replace(/([.*+?^=!:${}()|[\]\/\\])/g, '\\$1');
 }
 
-const STRING_MAP_PROTO = Object.getPrototypeOf({});
-function isStrictStringMap(obj: any): boolean {
-  return typeof obj === 'object' && obj !== null && Object.getPrototypeOf(obj) === STRING_MAP_PROTO;
-}
+export type Byte = number;
 
-export function utf8Encode(str: string): string {
-  let encoded = '';
+export function utf8Encode(str: string): Byte[] {
+  let encoded: Byte[] = [];
   for (let index = 0; index < str.length; index++) {
     let codePoint = str.charCodeAt(index);
 
     // decode surrogate
     // see https://mathiasbynens.be/notes/javascript-encoding#surrogate-formulae
-    if (codePoint >= 0xd800 && codePoint <= 0xdbff && str.length > (index + 1)) {
+    if (codePoint >= 0xd800 && codePoint <= 0xdbff && str.length > index + 1) {
       const low = str.charCodeAt(index + 1);
       if (low >= 0xdc00 && low <= 0xdfff) {
         index++;
@@ -140,27 +59,26 @@ export function utf8Encode(str: string): string {
     }
 
     if (codePoint <= 0x7f) {
-      encoded += String.fromCharCode(codePoint);
+      encoded.push(codePoint);
     } else if (codePoint <= 0x7ff) {
-      encoded += String.fromCharCode(((codePoint >> 6) & 0x1F) | 0xc0, (codePoint & 0x3f) | 0x80);
+      encoded.push(((codePoint >> 6) & 0x1f) | 0xc0, (codePoint & 0x3f) | 0x80);
     } else if (codePoint <= 0xffff) {
-      encoded += String.fromCharCode(
-          (codePoint >> 12) | 0xe0, ((codePoint >> 6) & 0x3f) | 0x80, (codePoint & 0x3f) | 0x80);
+      encoded.push(
+        (codePoint >> 12) | 0xe0,
+        ((codePoint >> 6) & 0x3f) | 0x80,
+        (codePoint & 0x3f) | 0x80,
+      );
     } else if (codePoint <= 0x1fffff) {
-      encoded += String.fromCharCode(
-          ((codePoint >> 18) & 0x07) | 0xf0, ((codePoint >> 12) & 0x3f) | 0x80,
-          ((codePoint >> 6) & 0x3f) | 0x80, (codePoint & 0x3f) | 0x80);
+      encoded.push(
+        ((codePoint >> 18) & 0x07) | 0xf0,
+        ((codePoint >> 12) & 0x3f) | 0x80,
+        ((codePoint >> 6) & 0x3f) | 0x80,
+        (codePoint & 0x3f) | 0x80,
+      );
     }
   }
 
   return encoded;
-}
-
-export interface OutputContext {
-  genFilePath: string;
-  statements: o.Statement[];
-  constantPool: ConstantPool;
-  importExpr(reference: any, typeParams?: o.Type[]|null, useSummaries?: boolean): o.Expression;
 }
 
 export function stringify(token: any): string {
@@ -168,52 +86,33 @@ export function stringify(token: any): string {
     return token;
   }
 
-  if (token instanceof Array) {
-    return '[' + token.map(stringify).join(', ') + ']';
+  if (Array.isArray(token)) {
+    return `[${token.map(stringify).join(', ')}]`;
   }
 
   if (token == null) {
     return '' + token;
   }
 
-  if (token.overriddenName) {
-    return `${token.overriddenName}`;
+  const name = token.overriddenName || token.name;
+  if (name) {
+    return `${name}`;
   }
 
-  if (token.name) {
-    return `${token.name}`;
+  if (!token.toString) {
+    return 'object';
   }
 
   // WARNING: do not try to `JSON.stringify(token)` here
   // see https://github.com/angular/angular/issues/23440
-  const res = token.toString();
+  const result = token.toString();
 
-  if (res == null) {
-    return '' + res;
+  if (result == null) {
+    return '' + result;
   }
 
-  const newLineIndex = res.indexOf('\n');
-  return newLineIndex === -1 ? res : res.substring(0, newLineIndex);
-}
-
-/**
- * Lazily retrieves the reference value from a forwardRef.
- */
-export function resolveForwardRef(type: any): any {
-  if (typeof type === 'function' && type.hasOwnProperty('__forward_ref__')) {
-    return type();
-  } else {
-    return type;
-  }
-}
-
-/**
- * Determine if the argument is shaped like a Promise
- */
-export function isPromise(obj: any): obj is Promise<any> {
-  // allow any Promise/A+ compliant thenable.
-  // It's up to the caller to ensure that obj.then conforms to the spec
-  return !!obj && typeof obj.then === 'function';
+  const newLineIndex = result.indexOf('\n');
+  return newLineIndex >= 0 ? result.slice(0, newLineIndex) : result;
 }
 
 export class Version {
@@ -234,18 +133,54 @@ export interface Console {
   warn(message: string): void;
 }
 
-
-declare var WorkerGlobalScope: any;
-// CommonJS / Node have global context exposed as "global" variable.
-// We don't want to include the whole node.d.ts this this compilation unit so we'll just fake
-// the global "global" var for now.
-declare var global: any;
-const __window = typeof window !== 'undefined' && window;
-const __self = typeof self !== 'undefined' && typeof WorkerGlobalScope !== 'undefined' &&
-    self instanceof WorkerGlobalScope && self;
-const __global = typeof global !== 'undefined' && global;
-
-// Check __global first, because in Node tests both __global and __window may be defined and _global
-// should be __global in that case.
-const _global: {[name: string]: any} = __global || __window || __self;
+const _global: {[name: string]: any} = globalThis;
 export {_global as global};
+
+const V1_TO_18 = /^([1-9]|1[0-8])\./;
+const V1_TO_21 = /^([1-9]|1[0-9]|2[0-1])\./;
+
+export function getJitStandaloneDefaultForVersion(version: string): boolean {
+  if (V1_TO_18.test(version)) {
+    // Angular v2 - v18 default is false.
+    return false;
+  }
+
+  // All other Angular versions (v19+) default to true.
+  return true;
+}
+
+export function getJitChangeDetectionDefaultForVersion(version: string): ChangeDetectionStrategy {
+  if (V1_TO_21.test(version)) {
+    // Angular v2 - v21 default is false.
+    return ChangeDetectionStrategy.Eager;
+  }
+
+  // All other Angular versions (v22+) default to true.
+  return ChangeDetectionStrategy.OnPush;
+}
+
+/**
+ * Namespaces a CSS variable name and validates its syntax.
+ *
+ * @param varName The CSS variable name starting with `--`.
+ * @throws An Error if the CSS variable is invalid (e.g. has a single hyphen after "--global").
+ * @returns The namespaced CSS variable name.
+ */
+export function namespaceCssVariable(varName: string): string {
+  // TODO: Enforce this in v23. This is a breaking change.
+  //       Enable tests under platform-browser and compiler matching "has a single hyphen".
+  // g3-only-start
+  // if (varName.startsWith('--global-') && !varName.startsWith('--global--')) {
+  //   throw new Error(
+  //     `CSS variable "${varName}" has a single hyphen after "--global". ` +
+  //       `Use two hyphens ("--global--${varName.substring('--global-'.length)}") to opt-out of namespacing.`,
+  //   );
+  // }
+  // g3-only-end
+
+  if (varName.startsWith('--global--')) {
+    return '--' + varName.substring('--global--'.length);
+  } else {
+    return '--%NS%' + varName.substring('--'.length);
+  }
+}

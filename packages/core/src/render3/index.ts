@@ -1,178 +1,261 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
-import {LifecycleHooksFeature, renderComponent, whenRendered} from './component';
-import {defineBase, defineComponent, defineDirective, defineNgModule, definePipe} from './definition';
-import {getComponent, getHostElement, getRenderedText} from './discovery_utils';
-import {InheritDefinitionFeature} from './features/inherit_definition_feature';
-import {NgOnChangesFeature} from './features/ng_onchanges_feature';
-import {ProvidersFeature} from './features/providers_feature';
-import {BaseDef, ComponentDef, ComponentDefWithMeta, ComponentTemplate, ComponentType, DirectiveDef, DirectiveDefFlags, DirectiveDefWithMeta, DirectiveType, PipeDef, PipeDefWithMeta} from './interfaces/definition';
-
-export {ComponentFactory, ComponentFactoryResolver, ComponentRef, injectComponentFactoryResolver} from './component_ref';
-export {getFactoryOf, getInheritedFactory} from './di';
-export {RenderFlags} from './interfaces/definition';
-export {CssSelectorList} from './interfaces/projection';
-
-
-// clang-format off
-export {
-  allocHostVars,
-  bind,
-  interpolation1,
-  interpolation2,
-  interpolation3,
-  interpolation4,
-  interpolation5,
-  interpolation6,
-  interpolation7,
-  interpolation8,
-  interpolationV,
-
-  container,
-  containerRefreshStart,
-  containerRefreshEnd,
-
-  nextContext,
-
-  element,
-  elementAttribute,
-  elementClassProp,
-  elementEnd,
-  elementProperty,
-  elementStart,
-
-  elementContainerStart,
-  elementContainerEnd,
-
-  elementStyling,
-  elementStylingMap,
-  elementStyleProp,
-  elementStylingApply,
-
-  listener,
-  store,
-  load,
-
-  namespaceHTML,
-  namespaceMathML,
-  namespaceSVG,
-
-  projection,
-  projectionDef,
-
-  text,
-  textBinding,
-  template,
-
-  reference,
-
-  embeddedViewStart,
-  embeddedViewEnd,
-  detectChanges,
-  markDirty,
-  tick,
-
-  directiveInject,
-  injectAttribute,
-  
-  getCurrentView
-} from './instructions';
-
-export {
-  restoreView,
-
-  enableBindings,
-  disableBindings,
-} from './state';
-
-export {
-  i18n,
-  i18nAttributes,
-  i18nExp,
-  i18nStart,
-  i18nEnd,
-  i18nApply,
-  i18nPostprocess
-} from './i18n';
-
-export {NgModuleFactory, NgModuleRef, NgModuleType} from './ng_module_ref';
-
-export {
-    AttributeMarker
-} from './interfaces/node';
-
-export {
-  setClassMetadata,
-} from './metadata';
-
-export {
-  pipe,
-  pipeBind1,
-  pipeBind2,
-  pipeBind3,
-  pipeBind4,
-  pipeBindV,
-} from './pipe';
-
-export {
-  QueryList,
-  query,
-  queryRefresh,
-} from './query';
-export  {
-  registerContentQuery,
-  loadQueryList,
-} from './instructions';
-
-export {
-  pureFunction0,
-  pureFunction1,
-  pureFunction2,
-  pureFunction3,
-  pureFunction4,
-  pureFunction5,
-  pureFunction6,
-  pureFunction7,
-  pureFunction8,
-  pureFunctionV,
-} from './pure_function';
-
-export {templateRefExtractor} from './view_engine_compatibility_prebound';
-
-
-// clang-format on
-
-export {
-  BaseDef,
+import {ɵɵdefineComponent, ɵɵdefineDirective, ɵɵdefineNgModule, ɵɵdefinePipe} from './definition';
+import {ɵɵControlFeature} from './features/control_feature';
+import {ɵɵHostDirectivesFeature} from './features/host_directives_feature';
+import {ɵɵInheritDefinitionFeature} from './features/inherit_definition_feature';
+import {ɵɵNgOnChangesFeature} from './features/ng_onchanges_feature';
+import {ɵɵProvidersFeature} from './features/providers_feature';
+import {ɵɵExternalStylesFeature} from './features/external_styles_feature';
+import {ControlDirectiveHost} from './interfaces/control';
+import {
   ComponentDef,
-  ComponentDefWithMeta,
   ComponentTemplate,
   ComponentType,
   DirectiveDef,
-  DirectiveDefFlags,
-  DirectiveDefWithMeta,
   DirectiveType,
-  NgOnChangesFeature,
-  InheritDefinitionFeature,
-  ProvidersFeature,
   PipeDef,
-  PipeDefWithMeta,
-  LifecycleHooksFeature,
-  defineComponent,
-  defineDirective,
-  defineNgModule,
-  defineBase,
-  definePipe,
-  getHostElement,
+} from './interfaces/definition';
+import {
+  ɵɵComponentDeclaration,
+  ɵɵDirectiveDeclaration,
+  ɵɵFactoryDeclaration,
+  ɵɵInjectorDeclaration,
+  ɵɵNgModuleDeclaration,
+  ɵɵPipeDeclaration,
+} from './interfaces/public_definitions';
+import {ɵɵsetComponentScope, ɵɵsetNgModuleScope} from './scope';
+import {
+  BaseDirectiveDebugMetadata,
+  AngularDirectiveDebugMetadata,
+  AngularComponentDebugMetadata,
+  AcxChangeDetectionStrategy,
+  AcxViewEncapsulation,
+  AcxDirectiveDebugMetadata,
+  AcxComponentDebugMetadata,
+  WizComponentDebugMetadata,
+  DirectiveDebugMetadata,
   getComponent,
+  getDirectiveMetadata,
+  getDirectives,
+  getHostElement,
   getRenderedText,
-  renderComponent,
-  whenRendered,
-};
+} from './util/discovery_utils';
 
+export {NgModuleType} from '../metadata/ng_module_def';
+export {ComponentFactory, ComponentRef} from './component_ref';
+export {ɵɵgetInheritedFactory} from './di';
+export {
+  ɵɵadvance,
+  ɵɵariaProperty,
+  ɵɵattribute,
+  ɵɵinterpolate,
+  ɵɵinterpolate1,
+  ɵɵinterpolate2,
+  ɵɵinterpolate3,
+  ɵɵinterpolate4,
+  ɵɵinterpolate5,
+  ɵɵinterpolate6,
+  ɵɵinterpolate7,
+  ɵɵinterpolate8,
+  ɵɵinterpolateV,
+  ɵɵclassMap,
+  ɵɵclassProp,
+  ɵɵcomponentInstance,
+  ɵɵdirectiveInject,
+  ɵɵdomElement,
+  ɵɵdomElementStart,
+  ɵɵdomElementEnd,
+  ɵɵdomElementContainer,
+  ɵɵdomElementContainerStart,
+  ɵɵdomElementContainerEnd,
+  ɵɵdomTemplate,
+  ɵɵdomListener,
+  ɵɵelement,
+  ɵɵelementContainer,
+  ɵɵelementContainerEnd,
+  ɵɵelementContainerStart,
+  ɵɵelementEnd,
+  ɵɵelementStart,
+  ɵɵforeignComponent,
+  ɵɵforeignContent,
+  ɵɵforeignContentFn,
+  ɵɵgetCurrentView,
+  ɵɵdomProperty,
+  ɵɵinjectAttribute,
+  ɵɵinvalidFactory,
+  ɵɵlistener,
+  ɵɵnamespaceHTML,
+  ɵɵnamespaceMathML,
+  ɵɵnamespaceSVG,
+  ɵɵnextContext,
+  ɵɵprojection,
+  ɵɵprojectionDef,
+  ɵɵproperty,
+  ɵɵcontrol,
+  ɵɵcontrolCreate,
+  ɵɵcontentQuery,
+  ɵɵcontentQuerySignal,
+  ɵɵloadQuery,
+  ɵɵqueryRefresh,
+  ɵɵqueryAdvance,
+  ɵɵviewQuery,
+  ɵɵviewQuerySignal,
+  ɵɵreference,
+  ɵɵinvalid,
+  ɵɵrepeater,
+  ɵɵrepeaterCreate,
+  ɵɵrepeaterTrackByIdentity,
+  ɵɵrepeaterTrackByIndex,
+  ɵɵstyleMap,
+  ɵɵstyleProp,
+  ɵɵsyntheticHostListener,
+  ɵɵsyntheticHostProperty,
+  ɵɵtemplate,
+  ɵɵconditional,
+  ɵɵconditionalCreate,
+  ɵɵconditionalBranchCreate,
+  ɵɵboundaryCreate,
+  ɵɵboundaryUpdate,
+  ɵɵgetBoundary,
+  ɵɵdefer,
+  ɵɵdeferWhen,
+  ɵɵdeferOnIdle,
+  ɵɵdeferOnImmediate,
+  ɵɵdeferOnTimer,
+  ɵɵdeferOnHover,
+  ɵɵdeferOnInteraction,
+  ɵɵdeferOnViewport,
+  ɵɵdeferPrefetchWhen,
+  ɵɵdeferPrefetchOnIdle,
+  ɵɵdeferPrefetchOnImmediate,
+  ɵɵdeferPrefetchOnTimer,
+  ɵɵdeferPrefetchOnHover,
+  ɵɵdeferPrefetchOnInteraction,
+  ɵɵdeferPrefetchOnViewport,
+  ɵɵdeferHydrateWhen,
+  ɵɵdeferHydrateNever,
+  ɵɵdeferHydrateOnIdle,
+  ɵɵdeferHydrateOnImmediate,
+  ɵɵdeferHydrateOnTimer,
+  ɵɵdeferHydrateOnHover,
+  ɵɵdeferHydrateOnInteraction,
+  ɵɵdeferHydrateOnViewport,
+  ɵɵtext,
+  ɵɵtextInterpolate,
+  ɵɵtextInterpolate1,
+  ɵɵtextInterpolate2,
+  ɵɵtextInterpolate3,
+  ɵɵtextInterpolate4,
+  ɵɵtextInterpolate5,
+  ɵɵtextInterpolate6,
+  ɵɵtextInterpolate7,
+  ɵɵtextInterpolate8,
+  ɵɵtextInterpolateV,
+  ɵɵtwoWayProperty,
+  ɵɵtwoWayBindingSet,
+  ɵɵtwoWayListener,
+  ɵgetUnknownElementStrictMode,
+  ɵsetUnknownElementStrictMode,
+  ɵgetUnknownPropertyStrictMode,
+  ɵsetUnknownPropertyStrictMode,
+  ɵɵdeclareLet,
+  ɵɵstoreLet,
+  ɵɵreadContextLet,
+  ɵɵattachSourceLocations,
+  ɵɵanimateEnter,
+  ɵɵanimateEnterListener,
+  ɵɵanimateLeave,
+  ɵɵanimateLeaveListener,
+  ɵɵarrowFunction,
+} from './instructions/all';
+export {
+  ɵɵdeferEnableTimerScheduling,
+  DEFER_BLOCK_DEPENDENCY_INTERCEPTOR as ɵDEFER_BLOCK_DEPENDENCY_INTERCEPTOR,
+  DEFER_BLOCK_CONFIG as ɵDEFER_BLOCK_CONFIG,
+} from '../defer/rendering';
+export {ɵɵenableIncrementalHydrationRuntime} from '../hydration/incremental_runtime';
+export {DeferBlockDependencyInterceptor as ɵDeferBlockDependencyInterceptor} from '../defer/interfaces';
+export {
+  ɵɵi18n,
+  ɵɵi18nApply,
+  ɵɵi18nAttributes,
+  ɵɵi18nEnd,
+  ɵɵi18nExp,
+  ɵɵi18nPostprocess,
+  ɵɵi18nStart,
+} from './instructions/i18n';
+export {RenderFlags} from './interfaces/definition';
+export {AttributeMarker} from './interfaces/attribute_marker';
+export {CssSelectorList, ProjectionSlots} from './interfaces/projection';
+export {setClassMetadata, setClassMetadataAsync} from './metadata';
+export {NgModuleFactory, NgModuleRef, createEnvironmentInjector} from './ng_module_ref';
+export {ɵɵpipe, ɵɵpipeBind1, ɵɵpipeBind2, ɵɵpipeBind3, ɵɵpipeBind4, ɵɵpipeBindV} from './pipe';
+export {
+  ɵɵpureFunction0,
+  ɵɵpureFunction1,
+  ɵɵpureFunction2,
+  ɵɵpureFunction3,
+  ɵɵpureFunction4,
+  ɵɵpureFunction5,
+  ɵɵpureFunction6,
+  ɵɵpureFunction7,
+  ɵɵpureFunction8,
+  ɵɵpureFunctionV,
+} from './pure_function';
+export {ɵɵdisableBindings, ɵɵenableBindings, ɵɵresetView, ɵɵrestoreView} from './state';
 export {NO_CHANGE} from './tokens';
+export {ɵɵresolveBody, ɵɵresolveDocument, ɵɵresolveWindow} from './util/misc_utils';
+export {ɵɵtemplateRefExtractor} from './view_engine_compatibility_prebound';
+export {ɵɵgetComponentDepsFactory} from './local_compilation';
+export {ɵsetClassDebugInfo} from './debug/set_debug_info';
+export {ɵɵreplaceMetadata, ɵɵgetReplaceMetadataURL} from './hmr';
+
+export {store} from './util/view_utils';
+
+export {
+  ComponentDef,
+  ComponentTemplate,
+  ComponentType,
+  BaseDirectiveDebugMetadata,
+  AngularDirectiveDebugMetadata,
+  AngularComponentDebugMetadata,
+  AcxChangeDetectionStrategy,
+  AcxViewEncapsulation,
+  AcxDirectiveDebugMetadata,
+  AcxComponentDebugMetadata,
+  WizComponentDebugMetadata,
+  ControlDirectiveHost,
+  DirectiveDebugMetadata,
+  DirectiveDef,
+  DirectiveType,
+  getComponent,
+  getDirectiveMetadata,
+  getDirectives,
+  getHostElement,
+  getRenderedText,
+  PipeDef,
+  ɵɵComponentDeclaration,
+  ɵɵdefineComponent,
+  ɵɵdefineDirective,
+  ɵɵdefineNgModule,
+  ɵɵdefinePipe,
+  ɵɵDirectiveDeclaration,
+  ɵɵFactoryDeclaration,
+  ɵɵControlFeature,
+  ɵɵHostDirectivesFeature,
+  ɵɵInheritDefinitionFeature,
+  ɵɵInjectorDeclaration,
+  ɵɵNgModuleDeclaration,
+  ɵɵNgOnChangesFeature,
+  ɵɵPipeDeclaration,
+  ɵɵProvidersFeature,
+  ɵɵsetComponentScope,
+  ɵɵsetNgModuleScope,
+  ɵɵExternalStylesFeature,
+};

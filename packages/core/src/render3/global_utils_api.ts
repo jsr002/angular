@@ -1,9 +1,9 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 /**
@@ -15,6 +15,18 @@
  * file in the public_api_guard test.
  */
 
-export {getComponent, getContext, getDirectives, getHostElement, getInjector, getListeners, getRootComponents, getViewComponent} from './discovery_utils';
-export {markDirty} from './instructions';
-export {getPlayers} from './players';
+export {applyChanges} from './util/change_detection_utils';
+export {enableProfiling} from './debug/chrome_dev_tools_performance';
+export {
+  DirectiveDebugMetadata,
+  getComponent,
+  getContext,
+  getDirectiveMetadata,
+  getDirectives,
+  getHostElement,
+  getInjector,
+  getListeners,
+  getOwningComponent,
+  getRootComponents,
+  Listener,
+} from './util/discovery_utils';

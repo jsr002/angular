@@ -1,173 +1,109 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-const xhr2: any = require('xhr2');
+import {PlatformLocation, XhrFactory} from '@angular/common';
+import {
+  ɵHTTP_ROOT_INTERCEPTOR_FNS as HTTP_ROOT_INTERCEPTOR_FNS,
+  HttpEvent,
+  HttpHandlerFn,
+  HttpRequest,
+} from '@angular/common/http';
+import {inject, Injectable, Provider, ɵRuntimeError as RuntimeError} from '@angular/core';
+import {Observable} from 'rxjs';
 
-import {Injectable, Injector, Optional, Provider, InjectFlags} from '@angular/core';
-import {BrowserXhr, Connection, ConnectionBackend, Http, ReadyState, Request, RequestOptions, Response, XHRBackend, XSRFStrategy} from '@angular/http';
-
-import {HttpEvent, HttpRequest, HttpHandler, HttpInterceptor, HTTP_INTERCEPTORS, HttpBackend, XhrFactory, ɵHttpInterceptingHandler as HttpInterceptingHandler} from '@angular/common/http';
-
-import {Observable, Observer, Subscription} from 'rxjs';
-
-const isAbsoluteUrl = /^[a-zA-Z\-\+.]+:\/\//;
-
-function validateRequestUrl(url: string): void {
-  if (!isAbsoluteUrl.test(url)) {
-    throw new Error(`URLs requested via Http on the server must be absolute. URL: ${url}`);
-  }
-}
+import {RuntimeErrorCode} from './errors';
+import {HTTP_OR_HTTPS_NO_AUTHORITY_REGEXP, resolveUrl} from './url';
 
 @Injectable()
-export class ServerXhr implements BrowserXhr {
-  build(): XMLHttpRequest { return new xhr2.XMLHttpRequest(); }
-}
+/**
+ * @deprecated Use the HttpClient fetch backend instead. Intent to remove in Angular 23.
+ * XHR support in `@angular/platform-server` is deprecated because the underlying `xhr2`
+ * library does not safely handle redirects (e.g. it can forward `Authorization` headers
+ * on cross-origin redirects and is susceptible to denial-of-service (DoS) via redirect loops).
+ */
+export class ServerXhr implements XhrFactory {
+  private xhrImpl: typeof import('xhr2') | undefined;
 
-@Injectable()
-export class ServerXsrfStrategy implements XSRFStrategy {
-  configureRequest(req: Request): void {}
-}
+  // The `xhr2` dependency has a side-effect of accessing and modifying a
+  // global scope. Loading `xhr2` dynamically allows us to delay the loading
+  // and start the process once the global scope is established by the underlying
+  // server platform (via shims, etc).
+  private async ɵloadImpl(): Promise<void> {
+    if (!this.xhrImpl) {
+      if (typeof ngDevMode === 'undefined' || ngDevMode) {
+        console.warn(
+          'XHR support in `@angular/platform-server` is deprecated and will be removed ' +
+            'in Angular 23. It has known security and performance issues in server ' +
+            'environments, such as forwarding `Authorization` headers on cross-origin ' +
+            'redirects and susceptibility to denial-of-service (DoS) via redirect loops. ' +
+            'Please use the HttpClient fetch backend instead, which is the default since Angular 22.',
+        );
+      }
 
-export abstract class ZoneMacroTaskWrapper<S, R> {
-  wrap(request: S): Observable<R> {
-    return new Observable((observer: Observer<R>) => {
-      let task: Task = null !;
-      let scheduled: boolean = false;
-      let sub: Subscription|null = null;
-      let savedResult: any = null;
-      let savedError: any = null;
-
-      const scheduleTask = (_task: Task) => {
-        task = _task;
-        scheduled = true;
-
-        const delegate = this.delegate(request);
-        sub = delegate.subscribe(
-            res => savedResult = res,
-            err => {
-              if (!scheduled) {
-                throw new Error(
-                    'An http observable was completed twice. This shouldn\'t happen, please file a bug.');
-              }
-              savedError = err;
-              scheduled = false;
-              task.invoke();
-            },
-            () => {
-              if (!scheduled) {
-                throw new Error(
-                    'An http observable was completed twice. This shouldn\'t happen, please file a bug.');
-              }
-              scheduled = false;
-              task.invoke();
-            });
-      };
-
-      const cancelTask = (_task: Task) => {
-        if (!scheduled) {
-          return;
-        }
-        scheduled = false;
-        if (sub) {
-          sub.unsubscribe();
-          sub = null;
-        }
-      };
-
-      const onComplete = () => {
-        if (savedError !== null) {
-          observer.error(savedError);
-        } else {
-          observer.next(savedResult);
-          observer.complete();
-        }
-      };
-
-      // MockBackend for Http is synchronous, which means that if scheduleTask is by
-      // scheduleMacroTask, the request will hit MockBackend and the response will be
-      // sent, causing task.invoke() to be called.
-      const _task = Zone.current.scheduleMacroTask(
-          'ZoneMacroTaskWrapper.subscribe', onComplete, {}, () => null, cancelTask);
-      scheduleTask(_task);
-
-      return () => {
-        if (scheduled && task) {
-          task.zone.cancelTask(task);
-          scheduled = false;
-        }
-        if (sub) {
-          sub.unsubscribe();
-          sub = null;
-        }
-      };
-    });
+      const {default: xhr} = await import('xhr2');
+      this.xhrImpl = xhr;
+    }
   }
 
-  protected abstract delegate(request: S): Observable<R>;
-}
+  build(): XMLHttpRequest {
+    const impl = this.xhrImpl;
+    if (!impl) {
+      throw new RuntimeError(
+        RuntimeErrorCode.XHR_NOT_LOADED,
+        (typeof ngDevMode === 'undefined' || ngDevMode) &&
+          'Unexpected state in ServerXhr: XHR implementation is not loaded.',
+      );
+    }
 
-export class ZoneMacroTaskConnection extends ZoneMacroTaskWrapper<Request, Response> implements
-    Connection {
-  response: Observable<Response>;
-  // TODO(issue/24571): remove '!'.
-  lastConnection !: Connection;
-
-  constructor(public request: Request, private backend: XHRBackend) {
-    super();
-    validateRequestUrl(request.url);
-    this.response = this.wrap(request);
-  }
-
-  delegate(request: Request): Observable<Response> {
-    this.lastConnection = this.backend.createConnection(request);
-    return this.lastConnection.response as Observable<Response>;
-  }
-
-  get readyState(): ReadyState {
-    return !!this.lastConnection ? this.lastConnection.readyState : ReadyState.Unsent;
+    return new impl.XMLHttpRequest();
   }
 }
 
-export class ZoneMacroTaskBackend implements ConnectionBackend {
-  constructor(private backend: XHRBackend) {}
+/**
+ * Regex to match a URL schema.
+ */
+const URL_SCHEMA_REGEXP = /^(?:[a-zA-Z][a-zA-Z0-9+\-.]*:)/;
 
-  createConnection(request: any): ZoneMacroTaskConnection {
-    return new ZoneMacroTaskConnection(request, this.backend);
+function relativeUrlsTransformerInterceptorFn(
+  request: HttpRequest<unknown>,
+  next: HttpHandlerFn,
+): Observable<HttpEvent<unknown>> {
+  if (URL_SCHEMA_REGEXP.test(request.url) && !HTTP_OR_HTTPS_NO_AUTHORITY_REGEXP.test(request.url)) {
+    // URLs with a schema (and an authority for http(s)) should be left unchanged.
+    return next(request);
   }
-}
 
-export class ZoneClientBackend extends
-    ZoneMacroTaskWrapper<HttpRequest<any>, HttpEvent<any>> implements HttpBackend {
-  constructor(private backend: HttpBackend) { super(); }
-
-  handle(request: HttpRequest<any>): Observable<HttpEvent<any>> { return this.wrap(request); }
-
-  protected delegate(request: HttpRequest<any>): Observable<HttpEvent<any>> {
-    return this.backend.handle(request);
+  const platformLocation = inject(PlatformLocation);
+  const {href, protocol, hostname, port} = platformLocation;
+  if (!protocol.startsWith('http')) {
+    return next(request);
   }
-}
 
-export function httpFactory(xhrBackend: XHRBackend, options: RequestOptions) {
-  const macroBackend = new ZoneMacroTaskBackend(xhrBackend);
-  return new Http(macroBackend, options);
-}
+  let urlPrefix = `${protocol}//${hostname}`;
+  if (port) {
+    urlPrefix += `:${port}`;
+  }
 
-export function zoneWrappedInterceptingHandler(backend: HttpBackend, injector: Injector) {
-  const realBackend: HttpBackend = new HttpInterceptingHandler(backend, injector);
-  return new ZoneClientBackend(realBackend);
+  const baseHref = platformLocation.getBaseHrefFromDOM() || href;
+  const baseUrl = new URL(baseHref, urlPrefix);
+
+  const parsedUrl = resolveUrl(request.url, baseUrl, {
+    allowProtocolRelative: true,
+  });
+
+  return next(request.clone({url: parsedUrl.toString()}));
 }
 
 export const SERVER_HTTP_PROVIDERS: Provider[] = [
-  {provide: Http, useFactory: httpFactory, deps: [XHRBackend, RequestOptions]},
-  {provide: BrowserXhr, useClass: ServerXhr}, {provide: XSRFStrategy, useClass: ServerXsrfStrategy},
-  {provide: XhrFactory, useClass: ServerXhr}, {
-    provide: HttpHandler,
-    useFactory: zoneWrappedInterceptingHandler,
-    deps: [HttpBackend, Injector]
-  }
+  {provide: XhrFactory, useClass: ServerXhr},
+  {
+    provide: HTTP_ROOT_INTERCEPTOR_FNS,
+    useValue: relativeUrlsTransformerInterceptorFn,
+    multi: true,
+  },
 ];

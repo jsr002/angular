@@ -1,6 +1,6 @@
-load("//tools:defaults.bzl", "jasmine_node_test", "ts_library")
+load("//tools:defaults.bzl", "ts_project", "zoneless_jasmine_test")
 
-ts_library(
+ts_project(
     name = "test_lib",
     testonly = True,
     srcs = glob(
@@ -8,16 +8,15 @@ ts_library(
     ),
     deps = [
         "//packages/service-worker/config",
+        "//packages/service-worker/config/testing",
     ],
 )
 
-jasmine_node_test(
+zoneless_jasmine_test(
     name = "test",
-    bootstrap = ["angular/tools/testing/init_node_spec.js"],
-    deps = [
+    data = [
         ":test_lib",
         "//packages/service-worker/config",
         "//packages/service-worker/config/testing",
-        "//tools/testing:node",
     ],
 )

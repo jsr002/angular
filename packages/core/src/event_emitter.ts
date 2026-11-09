@@ -1,25 +1,36 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-import {Subject, Subscription} from 'rxjs';
+import {setActiveConsumer} from '../primitives/signals';
+import {PartialObserver, Subject, Subscription} from 'rxjs';
+
+import {OutputRef} from './authoring/output/output_ref';
+import {isInInjectionContext} from './di/contextual';
+import {inject} from './di/injector_compatibility';
+import {DestroyRef} from './linker/destroy_ref';
+import {PendingTasksInternal} from './pending_tasks_internal';
 
 /**
- * Use in directives and components to emit custom events synchronously
- * or asynchronously, and register handlers for those events by subscribing
- * to an instance.
+ * Use in components with the `@Output` directive to emit custom events
+ * synchronously or asynchronously, and register handlers for those events
+ * by subscribing to an instance.
  *
  * @usageNotes
+ *
+ * Extends
+ * [RxJS `Subject`](https://rxjs.dev/api/index/class/Subject)
+ * for Angular by adding the `emit()` method.
  *
  * In the following example, a component defines two output properties
  * that create event emitters. When the title is clicked, the emitter
  * emits an open or close event to toggle the current visibility state.
  *
- * ```
+ * ```angular-ts
  * @Component({
  *   selector: 'zippy',
  *   template: `
@@ -48,95 +59,142 @@ import {Subject, Subscription} from 'rxjs';
  * Access the event object with the `$event` argument passed to the output event
  * handler:
  *
- * ```
+ * ```html
  * <zippy (open)="onOpen($event)" (close)="onClose($event)"></zippy>
  * ```
  *
- * ### Notes
- *
- * Uses Rx.Observable but provides an adapter to make it work as specified here:
- * https://github.com/jhusain/observable-spec
- *
- * Once a reference implementation of the spec is available, switch to it.
+ * @see [Declaring outputs with the @Output decorator](guide/components/outputs#declaring-outputs-with-the-output-decorator)
  *
  * @publicApi
  */
-export class EventEmitter<T> extends Subject<T> {
-  // TODO: mark this as internal once all the facades are gone
-  // we can't mark it as internal now because EventEmitter exported via @angular/core would not
-  // contain this property making it incompatible with all the code that uses EventEmitter via
-  // facades, which are local to the code and do not have this property stripped.
+export interface EventEmitter<T> extends Subject<T>, OutputRef<T> {
   /**
-   * Internal
+   * @internal
    */
-  __isAsync: boolean;  // tslint:disable-line
+  __isAsync: boolean;
 
   /**
    * Creates an instance of this class that can
    * deliver events synchronously or asynchronously.
    *
-   * @param isAsync When true, deliver events asynchronously.
+   * @param [isAsync=false] When true, deliver events asynchronously.
    *
    */
-  constructor(isAsync: boolean = false) {
-    super();
-    this.__isAsync = isAsync;
-  }
+  new (isAsync?: boolean): EventEmitter<T>;
 
   /**
    * Emits an event containing a given value.
    * @param value The value to emit.
    */
-  emit(value?: T) { super.next(value); }
+  emit(value?: T): void;
 
   /**
    * Registers handlers for events emitted by this instance.
-   * @param generatorOrNext When supplied, a custom handler for emitted events.
-   * @param error When supplied, a custom handler for an error notification
-   * from this emitter.
-   * @param complete When supplied, a custom handler for a completion
-   * notification from this emitter.
+   * @param next When supplied, a custom handler for emitted events.
+   * @param error When supplied, a custom handler for an error notification from this emitter.
+   * @param complete When supplied, a custom handler for a completion notification from this
+   *     emitter.
    */
-  subscribe(generatorOrNext?: any, error?: any, complete?: any): any {
-    let schedulerFn: (t: any) => any;
-    let errorFn = (err: any): any => null;
-    let completeFn = (): any => null;
+  subscribe(
+    next?: (value: T) => void,
+    error?: (error: any) => void,
+    complete?: () => void,
+  ): Subscription;
+  /**
+   * Registers handlers for events emitted by this instance.
+   * @param observerOrNext When supplied, a custom handler for emitted events, or an observer
+   *     object.
+   * @param error When supplied, a custom handler for an error notification from this emitter.
+   * @param complete When supplied, a custom handler for a completion notification from this
+   *     emitter.
+   */
+  subscribe(observerOrNext?: any, error?: any, complete?: any): Subscription;
+}
 
-    if (generatorOrNext && typeof generatorOrNext === 'object') {
-      schedulerFn = this.__isAsync ? (value: any) => {
-        setTimeout(() => generatorOrNext.next(value));
-      } : (value: any) => { generatorOrNext.next(value); };
+class EventEmitter_ extends Subject<any> implements OutputRef<any> {
+  // tslint:disable-next-line:require-internal-with-underscore
+  __isAsync: boolean;
+  destroyRef: DestroyRef | undefined = undefined;
+  private readonly pendingTasks: PendingTasksInternal | undefined = undefined;
 
-      if (generatorOrNext.error) {
-        errorFn = this.__isAsync ? (err) => { setTimeout(() => generatorOrNext.error(err)); } :
-                                   (err) => { generatorOrNext.error(err); };
+  constructor(isAsync: boolean = false) {
+    super();
+    this.__isAsync = isAsync;
+
+    // Attempt to retrieve a `DestroyRef` and `PendingTasks` optionally.
+    // For backwards compatibility reasons, this cannot be required.
+    if (isInInjectionContext()) {
+      // `DestroyRef` is optional because it is not available in all contexts.
+      // But it is useful to properly complete the `EventEmitter` if used with `outputToObservable`
+      // when the component/directive is destroyed. (See `outputToObservable` for more details.)
+      this.destroyRef = inject(DestroyRef, {optional: true}) ?? undefined;
+      this.pendingTasks = inject(PendingTasksInternal, {optional: true}) ?? undefined;
+    }
+  }
+
+  emit(value?: any) {
+    const prevConsumer = setActiveConsumer(null);
+    try {
+      super.next(value);
+    } finally {
+      setActiveConsumer(prevConsumer);
+    }
+  }
+
+  override subscribe(observerOrNext?: any, error?: any, complete?: any): Subscription {
+    let nextFn = observerOrNext;
+    let errorFn = error || (() => null);
+    let completeFn = complete;
+
+    if (observerOrNext && typeof observerOrNext === 'object') {
+      const observer = observerOrNext as PartialObserver<unknown>;
+      nextFn = observer.next?.bind(observer);
+      errorFn = observer.error?.bind(observer);
+      completeFn = observer.complete?.bind(observer);
+    }
+
+    if (this.__isAsync) {
+      errorFn = this.wrapInTimeout(errorFn);
+
+      if (nextFn) {
+        nextFn = this.wrapInTimeout(nextFn);
       }
 
-      if (generatorOrNext.complete) {
-        completeFn = this.__isAsync ? () => { setTimeout(() => generatorOrNext.complete()); } :
-                                      () => { generatorOrNext.complete(); };
-      }
-    } else {
-      schedulerFn = this.__isAsync ? (value: any) => { setTimeout(() => generatorOrNext(value)); } :
-                                     (value: any) => { generatorOrNext(value); };
-
-      if (error) {
-        errorFn =
-            this.__isAsync ? (err) => { setTimeout(() => error(err)); } : (err) => { error(err); };
-      }
-
-      if (complete) {
-        completeFn =
-            this.__isAsync ? () => { setTimeout(() => complete()); } : () => { complete(); };
+      if (completeFn) {
+        completeFn = this.wrapInTimeout(completeFn);
       }
     }
 
-    const sink = super.subscribe(schedulerFn, errorFn, completeFn);
+    const sink = super.subscribe({next: nextFn, error: errorFn, complete: completeFn});
 
-    if (generatorOrNext instanceof Subscription) {
-      generatorOrNext.add(sink);
+    if (observerOrNext instanceof Subscription) {
+      observerOrNext.add(sink);
     }
 
     return sink;
   }
+
+  private wrapInTimeout(fn: (value: unknown) => any) {
+    return (value: unknown) => {
+      const taskId = this.pendingTasks?.add();
+      setTimeout(() => {
+        try {
+          fn(value);
+        } finally {
+          if (taskId !== undefined) {
+            this.pendingTasks?.remove(taskId);
+          }
+        }
+      });
+    };
+  }
 }
+
+/**
+ * @publicApi
+ */
+export const EventEmitter: {
+  new (isAsync?: boolean): EventEmitter<any>;
+  new <T>(isAsync?: boolean): EventEmitter<T>;
+  readonly prototype: EventEmitter<any>;
+} = EventEmitter_ as any;

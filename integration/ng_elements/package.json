@@ -3,32 +3,39 @@
   "version": "0.0.0",
   "license": "MIT",
   "dependencies": {
-    "@angular/animations": "file:../../dist/packages-dist/animations",
-    "@angular/common": "file:../../dist/packages-dist/common",
-    "@angular/compiler": "file:../../dist/packages-dist/compiler",
-    "@angular/compiler-cli": "file:../../dist/packages-dist/compiler-cli",
-    "@angular/core": "file:../../dist/packages-dist/core",
-    "@angular/elements": "file:../../dist/packages-dist/elements",
-    "@angular/platform-browser": "file:../../dist/packages-dist/platform-browser",
-    "@angular/platform-server": "file:../../dist/packages-dist/platform-server",
-    "google-closure-compiler": "20180319.0.0",
-    "rxjs": "file:../../node_modules/rxjs",
-    "typescript": "file:../../node_modules/typescript",
-    "zone.js": "file:../../node_modules/zone.js"
+    "@angular/common": "link:./in-existing-linked-by-bazel",
+    "@angular/compiler": "link:./in-existing-linked-by-bazel",
+    "@angular/compiler-cli": "link:./in-existing-linked-by-bazel",
+    "@angular/core": "link:./in-existing-linked-by-bazel",
+    "@angular/elements": "link:./in-existing-linked-by-bazel",
+    "@angular/platform-browser": "link:./in-existing-linked-by-bazel",
+    "rxjs": "^7.0.0",
+    "tslib": "^2.3.0",
+    "typescript": "6.0.3",
+    "zone.js": "0.16.3"
   },
   "devDependencies": {
-    "@types/jasmine": "2.5.41",
-    "concurrently": "3.4.0",
-    "lite-server": "2.2.2",
-    "protractor": "file:../../node_modules/protractor"
+    "@babel/core": "8.1.0",
+    "@rollup/plugin-babel": "^7.0.0",
+    "@rollup/plugin-node-resolve": "^16.0.0",
+    "@types/jasmine": "^7.0.0",
+    "@types/node": "^20.14.8",
+    "@types/selenium-webdriver": "3.0.7",
+    "concurrently": "10.0.7",
+    "jasmine": "7.0.0",
+    "jasmine-core": "7.0.2",
+    "jasmine-spec-reporter": "~7.0.0",
+    "lite-server": "2.6.1",
+    "rollup": "4.68.0",
+    "selenium-webdriver": "3.5.0",
+    "ts-node": "^10.9.1"
   },
   "scripts": {
-    "postinstall": "webdriver-manager update --gecko false --standalone false $CHROMEDRIVER_VERSION_ARG",
-    "closure": "java -jar node_modules/google-closure-compiler/compiler.jar --flagfile closure.conf",
-    "test": "ngc && yarn run closure && concurrently \"yarn run serve\" \"yarn run protractor\" --kill-others --success first",
+    "build": "pnpm ngc && pnpm rollup -c rollup.config.mjs",
+    "test": "pnpm build && concurrently \"pnpm run serve\" \"pnpm run e2e\" --kill-others --success first",
     "serve": "lite-server -c e2e/browser.config.json",
-    "preprotractor": "tsc -p e2e",
-    "protractor": "protractor e2e/protractor.config.js"
+    "e2e": "jasmine --config=e2e/jasmine.json 'e2e/**/*.e2e-spec.ts'"
   },
-  "private": true
+  "private": true,
+  "packageManager": "pnpm@12.18.0"
 }

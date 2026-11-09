@@ -1,20 +1,26 @@
+load("//tools:defaults.bzl", "ts_project")
+
 package(default_visibility = ["//visibility:public"])
 
-load("//tools:defaults.bzl", "ts_library")
+ts_project(
+    name = "api",
+    srcs = ["api.ts"],
+    deps = [
+        "//:node_modules/typescript",
+        "//packages/compiler-cli/src/ngtsc/file_system",
+    ],
+)
 
-ts_library(
+ts_project(
     name = "shims",
-    srcs = glob([
-        "index.ts",
+    srcs = ["index.ts"] + glob([
         "src/**/*.ts",
     ]),
-    module_name = "@angular/compiler-cli/src/ngtsc/shims",
     deps = [
-        "//packages/compiler",
-        "//packages/compiler-cli/src/ngtsc/host",
-        "//packages/compiler-cli/src/ngtsc/metadata",
+        ":api",
+        "//:node_modules/@types/node",
+        "//:node_modules/typescript",
+        "//packages/compiler-cli/src/ngtsc/file_system",
         "//packages/compiler-cli/src/ngtsc/util",
-        "@ngdeps//@types/node",
-        "@ngdeps//typescript",
     ],
 )

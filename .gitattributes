@@ -5,5 +5,5 @@
 *.js eol=lf
 *.ts eol=lf
 
-# Must keep Windows line ending to be parsed correctly
-scripts/windows/packages.txt eol=crlf
+# Preserve verbatim line endings for NGP golden test fixtures
+packages/compiler-cli/preprocessor/test/golden/** -text

@@ -1,105 +1,140 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 import {animate, style, transition, trigger} from '@angular/animations';
 import {ɵAnimationEngine} from '@angular/animations/browser';
+import {CommonModule} from '@angular/common';
 import {Component} from '@angular/core';
 import {TestBed} from '@angular/core/testing';
-import {NoopAnimationsModule} from '@angular/platform-browser/animations';
-import {fixmeIvy} from '@angular/private/testing';
+import {isNode} from '@angular/private/testing';
+import {BrowserAnimationsModule, NoopAnimationsModule, provideNoopAnimations} from '../index';
 
-{
-  describe('NoopAnimationsModule', () => {
-    beforeEach(() => { TestBed.configureTestingModule({imports: [NoopAnimationsModule]}); });
+describe('NoopAnimationsModule', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({imports: [NoopAnimationsModule]});
+  });
 
-    it('should be removed once FW-643 is fixed', () => { expect(true).toBeTruthy(); });
+  noopAnimationTests();
+});
 
-    // TODO: remove the dummy test above ^ once the bug FW-643 has been fixed
-    fixmeIvy(
-        `FW-643: Components with animations throw with "Failed to execute 'setAttribute' on 'Element'`)
-        .it('should flush and fire callbacks when the zone becomes stable', (async) => {
-          @Component({
-            selector: 'my-cmp',
-            template:
-                '<div [@myAnimation]="exp" (@myAnimation.start)="onStart($event)" (@myAnimation.done)="onDone($event)"></div>',
-            animations: [trigger(
-                'myAnimation',
-                [transition(
-                    '* => state',
-                    [style({'opacity': '0'}), animate(500, style({'opacity': '1'}))])])],
-          })
-          class Cmp {
-            exp: any;
-            startEvent: any;
-            doneEvent: any;
-            onStart(event: any) { this.startEvent = event; }
-            onDone(event: any) { this.doneEvent = event; }
-          }
+describe('BrowserAnimationsModule with disableAnimations = true', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [BrowserAnimationsModule.withConfig({disableAnimations: true})],
+    });
+  });
 
-          TestBed.configureTestingModule({declarations: [Cmp]});
+  noopAnimationTests();
+});
 
-          const fixture = TestBed.createComponent(Cmp);
-          const cmp = fixture.componentInstance;
-          cmp.exp = 'state';
-          fixture.detectChanges();
-          fixture.whenStable().then(() => {
-            expect(cmp.startEvent.triggerName).toEqual('myAnimation');
-            expect(cmp.startEvent.phaseName).toEqual('start');
-            expect(cmp.doneEvent.triggerName).toEqual('myAnimation');
-            expect(cmp.doneEvent.phaseName).toEqual('done');
-            async();
-          });
-        });
+describe('provideNoopAnimations()', () => {
+  beforeEach(() => {
+    TestBed.configureTestingModule({providers: [provideNoopAnimations()]});
+  });
 
-    fixmeIvy(
-        `FW-643: Components with animations throw with "Failed to execute 'setAttribute' on 'Element'`)
-        .it('should handle leave animation callbacks even if the element is destroyed in the process',
-            (async) => {
-              @Component({
-                selector: 'my-cmp',
-                template:
-                    '<div *ngIf="exp" @myAnimation (@myAnimation.start)="onStart($event)" (@myAnimation.done)="onDone($event)"></div>',
-                animations: [trigger(
-                    'myAnimation',
-                    [transition(
-                        ':leave',
-                        [style({'opacity': '0'}), animate(500, style({'opacity': '1'}))])])],
-              })
-              class Cmp {
-                exp: any;
-                startEvent: any;
-                doneEvent: any;
-                onStart(event: any) { this.startEvent = event; }
-                onDone(event: any) { this.doneEvent = event; }
-              }
+  noopAnimationTests();
+});
 
-              TestBed.configureTestingModule({declarations: [Cmp]});
-              const engine = TestBed.get(ɵAnimationEngine);
-              const fixture = TestBed.createComponent(Cmp);
-              const cmp = fixture.componentInstance;
+function noopAnimationTests() {
+  it('should flush and fire callbacks when the zone becomes stable', (done) => {
+    // This test is only meant to be run inside the browser.
+    if (isNode) {
+      done();
+      return;
+    }
 
-              cmp.exp = true;
-              fixture.detectChanges();
-              fixture.whenStable().then(() => {
-                cmp.startEvent = null;
-                cmp.doneEvent = null;
+    @Component({
+      template:
+        '<div [@myAnimation]="exp" (@myAnimation.start)="onStart($event)" (@myAnimation.done)="onDone($event)"></div>',
+      animations: [
+        trigger('myAnimation', [
+          transition('* => state', [
+            style({'opacity': '0'}),
+            animate(500, style({'opacity': '1'})),
+          ]),
+        ]),
+      ],
+    })
+    class Cmp {
+      exp: any;
+      startEvent: any;
+      doneEvent: any;
+      onStart(event: any) {
+        this.startEvent = event;
+      }
+      onDone(event: any) {
+        this.doneEvent = event;
+      }
+    }
 
-                cmp.exp = false;
-                fixture.detectChanges();
-                fixture.whenStable().then(() => {
-                  expect(cmp.startEvent.triggerName).toEqual('myAnimation');
-                  expect(cmp.startEvent.phaseName).toEqual('start');
-                  expect(cmp.startEvent.toState).toEqual('void');
-                  expect(cmp.doneEvent.triggerName).toEqual('myAnimation');
-                  expect(cmp.doneEvent.phaseName).toEqual('done');
-                  expect(cmp.doneEvent.toState).toEqual('void');
-                  async();
-                });
-              });
-            });
+    const fixture = TestBed.createComponent(Cmp);
+    const cmp = fixture.componentInstance;
+    cmp.exp = 'state';
+    fixture.detectChanges();
+    fixture.whenStable().then(() => {
+      expect(cmp.startEvent.triggerName).toEqual('myAnimation');
+      expect(cmp.startEvent.phaseName).toEqual('start');
+      expect(cmp.doneEvent.triggerName).toEqual('myAnimation');
+      expect(cmp.doneEvent.phaseName).toEqual('done');
+      done();
+    });
+  });
+
+  it('should handle leave animation callbacks even if the element is destroyed in the process', (async) => {
+    // This test is only meant to be run inside the browser.
+    if (isNode) {
+      async();
+      return;
+    }
+
+    @Component({
+      template:
+        '<div *ngIf="exp" @myAnimation (@myAnimation.start)="onStart($event)" (@myAnimation.done)="onDone($event)"></div>',
+      animations: [
+        trigger('myAnimation', [
+          transition(':leave', [style({'opacity': '0'}), animate(500, style({'opacity': '1'}))]),
+        ]),
+      ],
+
+      imports: [CommonModule],
+    })
+    class Cmp {
+      exp: any;
+      startEvent: any;
+      doneEvent: any;
+      onStart(event: any) {
+        this.startEvent = event;
+      }
+      onDone(event: any) {
+        this.doneEvent = event;
+      }
+    }
+
+    const engine = TestBed.inject(ɵAnimationEngine);
+    const fixture = TestBed.createComponent(Cmp);
+    const cmp = fixture.componentInstance;
+
+    cmp.exp = true;
+    fixture.detectChanges();
+    fixture.whenStable().then(() => {
+      cmp.startEvent = null;
+      cmp.doneEvent = null;
+
+      cmp.exp = false;
+      fixture.detectChanges();
+      fixture.whenStable().then(() => {
+        expect(cmp.startEvent.triggerName).toEqual('myAnimation');
+        expect(cmp.startEvent.phaseName).toEqual('start');
+        expect(cmp.startEvent.toState).toEqual('void');
+        expect(cmp.doneEvent.triggerName).toEqual('myAnimation');
+        expect(cmp.doneEvent.phaseName).toEqual('done');
+        expect(cmp.doneEvent.toState).toEqual('void');
+        async();
+      });
+    });
   });
 }

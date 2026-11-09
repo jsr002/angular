@@ -9,9 +9,9 @@ This document details the new architecture of the Angular compiler in a post-Ivy
 
 ### The Ivy Compilation Model
 
-Broadly speaking, The Ivy model is that Angular decorators (`@Injectable`, etc) are compiled to static properties on the classes (`ngInjectableDef`). This operation must take place without global program knowledge, and in most cases only with knowledge of that single decorator.
+Broadly speaking, The Ivy model is that Angular decorators (`@Injectable`, etc) are compiled to static properties on the classes (`ɵprov`). This operation must take place without global program knowledge, and in most cases only with knowledge of that single decorator.
 
-The one exception is `@Component`, which requires knowledge of the metadata from the `@NgModule` which declares the component in order to properly generate the `ngComponentDef`. In particular, the selectors which are applicable during compilation of a component template are determined by the module that declares that component, and the transitive closure of the exports of that module's imports.
+The one exception is `@Component`, which requires knowledge of the metadata from the `@NgModule` which declares the component in order to properly generate the component def (`ɵcmp`). In particular, the selectors which are applicable during compilation of a component template are determined by the module that declares that component, and the transitive closure of the exports of that module's imports.
 
 Going forward, this will be the model by which Angular code will be compiled, shipped to NPM, and eventually bundled into applications.
 
@@ -23,11 +23,11 @@ Existing Angular libraries exist on NPM today and are distributed in the Angular
 
 We will produce two compiler entry-points, `ngtsc` and `ngcc`.
 
-`ngtsc` will be an Typescript-to-Javascript transpiler that reifies Angular decorators into static properties. It is a minimal wrapper around `tsc` which includes a set of Angular transforms. While Ivy is experimental, `ngc` operates as `ngtsc` when the `angularCompilerOption` `enableIvy` flag is set to `true` in the `tsconfig.json` file for the project.
+`ngtsc` will be a Typescript-to-Javascript transpiler that reifies Angular decorators into static properties. It is a minimal wrapper around `tsc` which includes a set of Angular transforms. While Ivy is experimental, `ngc` operates as `ngtsc` when the `angularCompilerOption` `enableIvy` flag is set to `true` in the `tsconfig.json` file for the project.
 
 `ngcc` (which stands for Angular compatibility compiler) is designed to process code coming from NPM and produce the equivalent Ivy version, as if the code was compiled with `ngtsc`. It will operate given a `node_modules` directory and a set of packages to compile, and will produce an equivalent directory from which the Ivy equivalents of those modules can be read. `ngcc` is a separate script entry point to `@angular/compiler-cli`.
 
-`ngcc` can also be run as part of a code loader (e.g. for Webpack) to transpile packages being read from `node_modules` on-demand.
+`ngcc` can also be run as part of a code loader (e.g. for webpack) to transpile packages being read from `node_modules` on-demand.
 
 ## Detailed Design
 
@@ -42,33 +42,37 @@ import {Component, Input} from '@angular/core';
 
 @Component({
   selector: 'greet',
-  template: '<div> Hello, {{name}}! </div>'
+  template: '<div> Hello, {{name}}! </div>',
 })
 export class GreetComponent {
   @Input() name: string;
 }
 ```
 
-will normally be translated this into something like,
+will normally be translated into something like this:
 
 ```js
-const tslib_1 = require("tslib");
-const core_1 = require("@angular/core");
-let GreetComponent = class GreetComponent {
-};
-tslib_1.__decorate([
-    core_1.Input(),
-    tslib_1.__metadata("design:type", String)
-], GreetComponent.prototype, "name", void 0);
-GreetComponent = tslib_1.__decorate([
+const tslib_1 = require('tslib');
+const core_1 = require('@angular/core');
+let GreetComponent = class GreetComponent {};
+tslib_1.__decorate(
+  [core_1.Input(), tslib_1.__metadata('design:type', String)],
+  GreetComponent.prototype,
+  'name',
+  void 0,
+);
+GreetComponent = tslib_1.__decorate(
+  [
     core_1.Component({
-        selector: 'greet',
-        template: '<div> Hello, {{name}}! </div>'
-    })
-], GreetComponent);
+      selector: 'greet',
+      template: '<div> Hello, {{name}}! </div>',
+    }),
+  ],
+  GreetComponent,
+);
 ```
 
-which translates the decorator into a form that is is executed at runtime. A `.d.ts` file is also emitted that might look something like
+which translates the decorator into a form that is executed at runtime. A `.d.ts` file is also emitted that might look something like
 
 ```ts
 export class GreetComponent {
@@ -79,22 +83,23 @@ export class GreetComponent {
 In `ngtsc` this is instead emitted as,
 
 ```js
-const i0 = require("@angular/core");
+const i0 = require('@angular/core');
 class GreetComponent {}
-GreetComponent.ngComponentDef = i0.ɵdefineComponent({
-    type: GreetComponent,
-    tag: 'greet',
-    factory: () => new GreetComponent(),
-    template: function (rf, ctx) {
-        if (rf & RenderFlags.Create) {
-            i0.ɵelementStart(0, 'div');
-            i0.ɵtext(1);
-            i0.ɵelementEnd();
-        }
-        if (rf & RenderFlags.Update) {
-            i0.ɵtextBinding(1, i0.ɵinterpolation1('Hello ', ctx.name, '!'));
-        }
+GreetComponent.ɵcmp = i0.ɵɵdefineComponent({
+  type: GreetComponent,
+  tag: 'greet',
+  factory: () => new GreetComponent(),
+  template: function (rf, ctx) {
+    if (rf & RenderFlags.Create) {
+      i0.ɵɵelementStart(0, 'div');
+      i0.ɵɵtext(1);
+      i0.ɵɵelementEnd();
     }
+    if (rf & RenderFlags.Update) {
+      i0.ɵɵadvance();
+      i0.ɵɵtextInterpolate1('Hello ', ctx.name, '!');
+    }
+  },
 });
 ```
 
@@ -103,20 +108,16 @@ and the `.d.ts` contains:
 ```ts
 import * as i0 from '@angular/core';
 export class GreetComponent {
-  static ngComponentDef: i0.NgComponentDef<
-    GreetComponent, 
-    'greet', 
-    {input: 'input'}
-  >;
+  static ɵcmp: i0.NgComponentDef<GreetComponent, 'greet', {input: 'input'}>;
 }
 ```
 
-The information needed by reference inversion and type-checking is included in 
-the type declaration of the `ngComponentDef` in the `.d.ts`.
+The information needed by reference inversion and type-checking is included in
+the type declaration of the `ɵcmp` in the `.d.ts`.
 
 #### TypeScript architecture
 
-The overall architecure of TypeScript is:
+The overall architecture of TypeScript is:
 
                                                                     |------------|
                                |----------------------------------> | TypeScript |
@@ -127,18 +128,18 @@ The overall architecure of TypeScript is:
     | TypeScript | -parse-> | AST | ->transform-> | AST | ->print-> | JavaScript |
     |   source   |    |     |-----|       |       |-----|           |   source   |
     |------------|    |        |          |                         |------------|
-                      |    type-check     |          
-                      |        |          |         
-                      |        v          |        
-                      |    |--------|     |                        
-                      |--> | errors | <---|                         
+                      |    type-check     |
+                      |        |          |
+                      |        v          |
+                      |    |--------|     |
+                      |--> | errors | <---|
                            |--------|
 
-The parse step is a traditional recursive descent parser, augmented to support incremental parsing, that emits an abstract syntax tree (AST). 
+The parse step is a traditional recursive descent parser, augmented to support incremental parsing, that emits an abstract syntax tree (AST).
 
-The type-checker construct a symbol table and then performs type analysis of every expression in the file, reporting errors it finds. This process not extended or modified by `ngtsc`.
+The type-checker construct a symbol table and then performs type analysis of every expression in the file, reporting errors it finds. This process is not extended or modified by `ngtsc`.
 
-The transform step is a set of AST to AST transformations that perform various tasks such as, removing type declarations, lowering module and class declarations to ES5, converting `async` methods to state-machines, etc. 
+The transform step is a set of AST to AST transformations that perform various tasks such as, removing type declarations, lowering module and class declarations to ES5, converting `async` methods to state-machines, etc.
 
 #### Extension points
 
@@ -146,7 +147,7 @@ TypeScript supports the following extension points to alter its output. You can,
 
 1. Modify the TypeScript source it sees (`CompilerHost.getSourceFile`)
 2. Alter the list of transforms (`CustomTransformers`)
-3. Intercept the the output before it is written (`WriteFileCallback`)
+3. Intercept the output before it is written (`WriteFileCallback`)
 
 It is not recommended to alter the source code as this complicates the managing of source maps, makes it difficult to support incremental parsing, and is not supported by TypeScript's language service plug-in model.
 
@@ -168,9 +169,9 @@ Angular supports the following class decorators:
 
 There are also a list of helper decorators that make the `@Component` and `@Directive` easier to use such as `@Input`, `@Output`, etc.; as well as a set of decorators that help `@Injectable` classes customize the injector such as `@Inject` and `@SkipSelf`.
 
-Each of the class decorators can be thought of as class transformers that take the declared class and transform it, possibly using information from the helper decorators, to produce an Angular class. The JIT compiler performs this transformation at runtime. The AoT compiler performs this transformation at compile time.
+Each of the class decorators can be thought of as class transformers that take the declared class and transform it, possibly using information from the helper decorators, to produce an Angular class. The JIT compiler performs this transformation at runtime. The AOT compiler performs this transformation at compile time.
 
-Each of the class decorators' class transformer creates a corresponding static member on the class that describes to the runtime how to use the class. For example, the `@Component` decorator creates an `ngComponentDef` static member, `@Directive` create an `ngDirectiveDef`, etc. Internally, these class transformers are called a "Compiler". Most of the compilers are straight forward translations of the metadata specified in the decorator to the information provided in the corresponding definition and, therefore, do not require anything outside the source file to perform the conversion. However, the component, during production builds and for type checking a template require the module scope of the component which requires information from other files in the program.
+Each of the class decorators' class transformer creates a corresponding static member on the class that describes to the runtime how to use the class. For example, the `@Component` decorator creates a `ɵcmp` static member, `@Directive` create a `ɵdir`, etc. Internally, these class transformers are called a "Compiler". Most of the compilers are straight forward translations of the metadata specified in the decorator to the information provided in the corresponding definition and, therefore, do not require anything outside the source file to perform the conversion. However, the component, during production builds and for type checking a template require the module scope of the component which requires information from other files in the program.
 
 #### Compiler design
 
@@ -185,10 +186,10 @@ Compilers will also not take Typescript nodes directly as input, but will operat
 
 For example, the input to the `@Component` compiler will be:
 
-* A reference to the class of the component.
-* The template and style resources of the component.
-* The selector of the component.
-* A selector map for the module to which the component belongs.
+- A reference to the class of the component.
+- The template and style resources of the component.
+- The selector of the component.
+- A selector map for the module to which the component belongs.
 
 #### Need for static value resolution
 
@@ -229,7 +230,7 @@ The `ngtsc` metadata evaluator will be built as a partial Typescript interpreter
 
 A template is compiled in `TemplateCompiler` by performing the following:
 
-1. Tokenizes the template 
+1. Tokenizes the template
 2. Parses the tokens into an HTML AST
 3. Converts the HTML AST into an Angular Template AST.
 4. Translates the Angular Template AST to a template function
@@ -244,9 +245,9 @@ As part of this conversion an exhaustive list of selector targets is also produc
 
 The `TemplateCompiler` can produce a template function from a string without additional information. However, correct interpretation of that string requires a selector scope discussed below. The selector scope is built at runtime allowing the runtime to use a function built from just a string as long as it is given a selector scope (e.g. an NgModule) to use during instantiation.
 
-#### The selector problem 
+#### The selector problem
 
-To interpret the content of a template, the runtime needs to know what component and directives to apply to the element and what pipes are referenced by binding expressions. The list of candidate components, directives and pipes are determined by the `NgModule` in which the component is declared. Since the module and component are in separate source files, mapping which components, directives and pipes referenced is left to the runtime. Unfortunately, this leads to a tree-shaking problem. Since there no direct link between the component and types the component references then all components, directives and pipes declared in the module, and any module imported from the module, must be available at runtime or risk the template failing to be interpreted correctly. Including everything can lead to a very large program which contains many components the application doesn't actually use.
+To interpret the content of a template, the runtime needs to know what component and directives to apply to the element and what pipes are referenced by binding expressions. The list of candidate components, directives, and pipes are determined by the `NgModule` in which the component is declared. Since the module and component are in separate source files, mapping which components, directives, and pipes referenced is left to the runtime. Unfortunately, this leads to a tree-shaking problem. Since there no direct link between the component and types the component references then all components, directives, and pipes declared in the module, and any module imported from the module, must be available at runtime or risk the template failing to be interpreted correctly. Including everything can lead to a very large program which contains many components the application doesn't actually use.
 
 The process of removing unused code is traditionally referred to as "tree-shaking". To determine what codes is necessary to include, a tree-shakers produces the transitive closure of all the code referenced by the bootstrap function. If the bootstrap code references a module then the tree-shaker will include everything imported or declared into the module.
 
@@ -266,8 +267,8 @@ The process of reference inversion is to turn the list of selector targets produ
 
 1. Add all the type declared in the `declarations` field.
 2. For each module that is imported.
-    - Add the exported components, directives, and pipes
-    - Repeat these sub-steps for with each exported module
+   - Add the exported components, directives, and pipes
+   - Repeat these sub-steps for with each exported module
 
 For each type in the list produced above, parse the selector and convert them all into a selector matcher that, given a target, produces the type that matches the selector. This is referred to as the selector scope.
 
@@ -275,7 +276,7 @@ Given a selector scope, a dependency list is formed by producing the set of type
 
 ##### Finding a components module.
 
-A component's module can be found by using the TypeScript language service's `findReferences`. If one of the references is to a class declaration with an `@NgModule` annotation, process the class as described above to produce the selector scope. If the class is the declaration list of the `@NgModule` then use the scope produce for that module.
+A component's module can be found by using the TypeScript language service's `findReferences`. If one of the references is to a class declaration with an `@NgModule` annotation, process the class as described above to produce the selector scope. If the class is the declaration list of the `@NgModule` then use the scope produced for that module.
 
 When processing the `@NgModule` class, the type references can be found using the program's `checker` `getSymbolAtLocation` (potentially calling `getAliasedSymbol` if it is an alias symbol, `SymbolFlags.Alias`) and then using `Symbol`'s `declarations` field to get the list of declarations nodes (there should only be one for a `class`, there can be several for an `interface`).
 
@@ -295,7 +296,7 @@ Type guards require determining which directives apply to an element to determin
 
 Correctly typing an expression that includes a pipe requires determining the result type of the `transform` method of the type.
 
-Additionally, more advanced type-checking as described in [Type Checking Templates](https://goo.gl/Q3tSgP) also requires determining the types of the directives that apply to an element as well as how the attributes map to the properties of the directives.
+Additionally, more advanced type-checking also requires determining the types of the directives that apply to an element as well as how the attributes map to the properties of the directives.
 
 The types of directives can be found using a selector scope as described for reference inversion. Once a selector scope is produced, the component and directives that apply to an element can be determined from the selector scope. The `.d.ts` changes described above also includes the attribute to property maps. The `TypeGuard`s are recorded as static fields that are included in the `.d.ts` file of the directive.
 
@@ -305,9 +306,9 @@ The types of directives can be found using a selector scope as described for ref
 
 When `ngtsc` starts running, it first parses the `tsconfig.json` file and then creates a `ts.Program`. Several things need to happen before the transforms described above can run:
 
-* Metadata must be collected for input source files which contain decorators.
-* Resource files listed in `@Component` decorators must be resolved asynchronously. The CLI, for example, may wish to run Webpack to produce the `.css` input to the `styleUrls` property of an `@Component`.
-* Diagnostics must be run, which creates the `TypeChecker` and touches every node in the program (a decently expensive operation).
+- Metadata must be collected for input source files which contain decorators.
+- Resource files listed in `@Component` decorators must be resolved asynchronously. The CLI, for example, may wish to run webpack to produce the `.css` input to the `styleUrls` property of an `@Component`.
+- Diagnostics must be run, which creates the `TypeChecker` and touches every node in the program (a decently expensive operation).
 
 Because resource loading is asynchronous (and in particular, may actually be concurrent via subprocesses), it's desirable to kick off as much resource loading as possible before doing anything expensive.
 
@@ -315,7 +316,7 @@ Thus, the compiler flow looks like:
 
 1. Create the `ts.Program`
 2. Scan source files for top-level declarations which have trivially detectable `@Component` annotations. This avoids creating the `TypeChecker`.
-    * For each such declaration that has a `templateUrl` or `styleUrls`, kick off resource loading for that URL and add the `Promise` to a queue.
+   - For each such declaration that has a `templateUrl` or `styleUrls`, kick off resource loading for that URL and add the `Promise` to a queue.
 3. Get diagnostics and report any initial error messages. At this point, the `TypeChecker` is primed.
 4. Do a thorough scan for `@Component` annotations, using the `TypeChecker` and the metadata system to resolve any complex expressions.
 5. Wait on all resources to be resolved.
@@ -351,7 +352,7 @@ So the Angular transformer will run after the Tsickle transforms, but before the
 
 ##### Watch mode
 
-`ngtsc` will support TypeScript's `--watch` mode for incremental compilation. Interally, watch mode is implemented via reuse of a `ts.Program` from the previous compile. When a `ts.Program` is reused, TypeScript determines which source files need to be re-typechecked and re-emitted, and performs those operations.
+`ngtsc` will support TypeScript's `--watch` mode for incremental compilation. Internally, watch mode is implemented via reuse of a `ts.Program` from the previous compile. When a `ts.Program` is reused, TypeScript determines which source files need to be re-typechecked and re-emitted, and performs those operations.
 
 This mode works for the Angular transformer and most of the decorator compilers, because they operate only using the metadata from one particular file. The exception is the `@Component` decorator, which requires the selector scope for the module in which the component is declared in. Effectively, this means that all components within a selector scope must be recompiled together, as any changes to the component selectors or type names, for example, will invalidate the compilation of all templates of all components in the scope. Since TypeScript will not track these changes, it's the responsibility of `ngtsc` to ensure the re-compilation of the right set of files.
 
@@ -427,7 +428,7 @@ ngcc_node_modules
 
 #### Operation as a loader
 
-`ngcc` can be called as a standalone entrypoint, but it can also be integrated into the dependency loading operation of a bundler such as Rollup or Webpack. In this mode, the `ngcc` API can be used to read a file originally in `node_modules`. If the file is from a package which has not yet been converted, `ngcc` will convert the package and its dependencies before returning the file's contents.
+`ngcc` can be called as a standalone entrypoint, but it can also be integrated into the dependency loading operation of a bundler such as Rollup or webpack. In this mode, the `ngcc` API can be used to read a file originally in `node_modules`. If the file is from a package which has not yet been converted, `ngcc` will convert the package and its dependencies before returning the file's contents.
 
 In this mode, the on-disk `ngcc_node_modules` directory functions as a cache. If the file being requested has previously been converted, its contents will be read from `ngcc_node_modules`.
 
@@ -440,9 +441,9 @@ Compiling a package in `ngcc` involves the following steps:
 1. Parse the JS files of the package with the Typescript parser.
 2. Invoke the `StaticReflector` system from the legacy `@angular/compiler` to parse the `.metadata.json` files.
 3. Run through each Angular decorator in the Ivy system and compile:
-    1. Use the JS AST plus the information from the `StaticReflector` to construct the input to the annotation's Compiler.
-    2. Run the annotation's Compiler which will produce a partial class and its type declaration.
-    3. Extract the static property definition from the partial class.
+   1. Use the JS AST plus the information from the `StaticReflector` to construct the input to the annotation's Compiler.
+   2. Run the annotation's Compiler which will produce a partial class and its type declaration.
+   3. Extract the static property definition from the partial class.
 4. Combine the compiler outputs with the JS AST to produce the resulting `.js` and `.d.ts` files, and write them to disk.
 5. Copy over all other files.
 
@@ -450,8 +451,8 @@ Compiling a package in `ngcc` involves the following steps:
 
 At first glance it is desirable for each Compiler's output to be patched into the AST for the modules being compiled, and then to generate the resulting JS code and sourcemaps using Typescript's emit on the AST. This is undesirable for several reasons:
 
-* The round-trip through the Typescript parser and emitter might subtly change the input JS code - dropping comments, reformatting code, etc. This is not ideal, as users expect the input code to remain as unchanged as possible.
-* It isn't possible in Typescript to directly emit without going through any of Typescript's own transformations. This may cause expressions to be reformatted, code to be downleveled, and requires configuration of an output module system into which the code will be transformed.
+- The round-trip through the Typescript parser and emitter might subtly change the input JS code - dropping comments, reformatting code, etc. This is not ideal, as users expect the input code to remain as unchanged as possible.
+- It isn't possible in Typescript to directly emit without going through any of Typescript's own transformations. This may cause expressions to be reformatted, code to be downleveled, and requires configuration of an output module system into which the code will be transformed.
 
 For these reasons, `ngcc` will not use the TS emitter to produce the final patched `.js` files. Instead, the JS text will be manipulated directly, with the help of the `magic-string` or similar library to ensure the changes are reflected in the output sourcemaps. The AST which is parsed from the JS files contains position information of all the types in the JS source, and this information can be used to determine the correct insertion points for the Ivy static fields.
 
@@ -459,7 +460,7 @@ Similarly, the `.d.ts` files will be parsed by the TS parser, and the informatio
 
 ##### Module systems
 
-The Angular Package Format includes more than one copy of a package's code. At minimum, it includes one ESM5 (ES5 code in ES Modules) entrypoint, one ES2015 entrypoint, and one UMD entrypoint. Some libraries _not_ following the package format may still work in the Angular CLI, if they export code that can be loaded by Webpack.
+The Angular Package Format includes more than one copy of a package's code. At minimum, it includes one ESM5 (ES5 code in ES Modules) entrypoint, one ES2015 entrypoint, and one UMD entrypoint. Some libraries _not_ following the package format may still work in the Angular CLI, if they export code that can be loaded by webpack.
 
 Thus, `ngcc` will have two approaches for dealing with packages on NPM.
 

@@ -1,37 +1,52 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-import {ElementArrayFinder, browser, by, element} from 'protractor';
-import {verifyNoBrowserErrors} from '../../../../_common/e2e_util';
+import * as webdriver from 'selenium-webdriver';
+import {createWebDriver, verifyNoBrowserErrors, waitForAngular} from '../../../../test-utils';
 
 describe('formBuilder example', () => {
-  afterEach(verifyNoBrowserErrors);
-  let inputs: ElementArrayFinder;
-  let paragraphs: ElementArrayFinder;
+  let driver: webdriver.WebDriver;
+  let baseUrl: string;
 
-  beforeEach(() => {
-    browser.get('/forms/ts/formBuilder/index.html');
-    inputs = element.all(by.css('input'));
-    paragraphs = element.all(by.css('p'));
+  beforeAll(async () => {
+    ({driver, baseUrl} = await createWebDriver());
   });
 
-  it('should populate the UI with initial values', () => {
-    expect(inputs.get(0).getAttribute('value')).toEqual('Nancy');
-    expect(inputs.get(1).getAttribute('value')).toEqual('Drew');
+  afterAll(async () => {
+    await driver.quit();
   });
 
-  it('should update the validation status', () => {
-    expect(paragraphs.get(1).getText()).toEqual('Validation status: VALID');
-
-    inputs.get(0).click();
-    inputs.get(0).clear();
-    inputs.get(0).sendKeys('a');
-    expect(paragraphs.get(1).getText()).toEqual('Validation status: INVALID');
+  afterEach(async () => {
+    await verifyNoBrowserErrors(driver);
   });
 
+  beforeEach(async () => {
+    await driver.get(`${baseUrl}/formBuilder`);
+    await waitForAngular(driver);
+  });
+
+  it('should populate the UI with initial values', async () => {
+    const inputs = await driver.findElements(webdriver.By.css('input'));
+    expect(await inputs[0].getAttribute('value')).toEqual('Nancy');
+    expect(await inputs[1].getAttribute('value')).toEqual('Drew');
+  });
+
+  it('should update the validation status', async () => {
+    const paragraphs = await driver.findElements(webdriver.By.css('p'));
+    expect(await paragraphs[1].getText()).toEqual('Validation status: VALID');
+
+    const inputs = await driver.findElements(webdriver.By.css('input'));
+    await inputs[0].click();
+    await inputs[0].clear();
+    await inputs[0].sendKeys('a');
+    await waitForAngular(driver);
+
+    const updatedParagraphs = await driver.findElements(webdriver.By.css('p'));
+    expect(await updatedParagraphs[1].getText()).toEqual('Validation status: INVALID');
+  });
 });

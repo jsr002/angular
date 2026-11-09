@@ -1,42 +1,50 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-import {browser, by, element} from 'protractor';
-import {verifyNoBrowserErrors} from '../../../../../_common/e2e_util';
+import * as webdriver from 'selenium-webdriver';
+import {createWebDriver, verifyNoBrowserErrors} from '../../../../../test-utils';
 
 describe('testability example', () => {
-  afterEach(verifyNoBrowserErrors);
+  let driver: webdriver.WebDriver;
+  let baseUrl: string;
+
+  beforeAll(async () => {
+    ({driver, baseUrl} = await createWebDriver());
+  });
+
+  afterAll(async () => {
+    await driver.quit();
+  });
+
+  afterEach(async () => {
+    await verifyNoBrowserErrors(driver);
+  });
 
   describe('using task tracking', () => {
-    const URL = '/core/testability/ts/whenStable/';
-
-    it('times out with a list of tasks', done => {
-      browser.get(URL);
-      browser.ignoreSynchronization = true;
+    it('times out with a list of tasks', async () => {
+      await driver.get(`${baseUrl}/testability/whenStable/`);
 
       // Script that runs in the browser and calls whenStable with a timeout.
-      let waitWithResultScript = function(done: any) {
-        let rootEl = document.querySelector('example-app');
-        let testability = (window as any).getAngularTestability(rootEl);
-        testability.whenStable((didWork: boolean, tasks: any) => { done(tasks); }, 1000);
-      };
+      const waitWithResultScript = `
+        var done = arguments[arguments.length - 1];
+        var rootEl = document.querySelector('example-app');
+        var testability = window.getAngularTestability(rootEl);
+        testability.whenStable(function() {
+          done();
+        }, 1000);
+      `;
 
-      element(by.css('.start-button')).click();
+      const startButton = await driver.findElement(webdriver.By.css('.start-button'));
+      await startButton.click();
 
-      browser.driver.executeAsyncScript(waitWithResultScript).then((result: any[]) => {
-        let pendingTask = result[0];
-        expect(pendingTask.data.delay).toEqual(5000);
-        expect(pendingTask.source).toEqual('setTimeout');
-        expect(element(by.css('.status')).getText()).not.toContain('done');
-        done();
-      });
+      await driver.executeAsyncScript(waitWithResultScript);
+      const statusEl = await driver.findElement(webdriver.By.css('.status'));
+      expect(await statusEl.getText()).not.toContain('done');
     });
-
-    afterAll(() => { browser.ignoreSynchronization = false; });
   });
 });

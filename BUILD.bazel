@@ -1,51 +1,69 @@
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+load("@devinfra//bazel/validation:defs.bzl", "validate_ts_version_matching")
+load("@npm//:defs.bzl", "npm_link_all_packages")
+load("//tools:defaults.bzl", "copy_to_bin")
+
 package(default_visibility = ["//visibility:public"])
 
-load("@build_bazel_rules_nodejs//:defs.bzl", "node_modules_filegroup")
-
 exports_files([
-    "tsconfig.json",
     "LICENSE",
-    "protractor-perf.conf.js",
+    "package.json",
 ])
 
-filegroup(
-    name = "web_test_bootstrap_scripts",
-    # do not sort
-    srcs = [
-        "@ngdeps//node_modules/reflect-metadata:Reflect.js",
-        "@ngdeps//node_modules/zone.js:dist/zone.js",
-        "@ngdeps//node_modules/zone.js:dist/zone-testing.js",
-        "@ngdeps//node_modules/zone.js:dist/task-tracking.js",
-        "//:test-events.js",
-    ],
+npm_link_all_packages(
+    name = "node_modules",
 )
 
 filegroup(
+    # filegroup is needed so that this package.json file can be a dep
+    # in a js_library target, which doesn't allow source file deps
+    name = "package_json",
+    srcs = ["package.json"],
+)
+
+validate_ts_version_matching(
+    module_bazel = "MODULE.bazel",
+    package_json = "package.json",
+)
+
+alias(
+    name = "tsconfig.json",
+    actual = "//packages:tsconfig-build.json",
+)
+
+copy_to_bin(
     name = "angularjs_scripts",
     srcs = [
-        "@ngdeps//node_modules/angular:angular.js",
-        "@ngdeps//node_modules/angular-1.5:angular.js",
-        "@ngdeps//node_modules/angular-1.6:angular.js",
-        "@ngdeps//node_modules/angular-mocks:angular-mocks.js",
-        "@ngdeps//node_modules/angular-mocks-1.5:angular-mocks.js",
-        "@ngdeps//node_modules/angular-mocks-1.6:angular-mocks.js",
+        # We also declare the unminified AngularJS files since these can be used for
+        # local debugging (e.g. see: packages/upgrade/test/common/test_helpers.ts)
+        "//:node_modules/angular-1.5",
+        "//:node_modules/angular-1.6",
+        "//:node_modules/angular-1.7",
+        "//:node_modules/angular-mocks-1.5",
+        "//:node_modules/angular-mocks-1.6",
+        "//:node_modules/angular-mocks-1.7",
+        "//:node_modules/angular-mocks-1.8",
+        "//:node_modules/angular-1.8",
     ],
 )
 
-load("@build_bazel_rules_nodejs//:defs.bzl", "nodejs_binary")
+# Detect if the build is running under --stamp
+config_setting(
+    name = "stamp",
+    values = {"stamp": "true"},
+)
 
-# A nodejs_binary for @angular/bazel/ngc-wrapped to use by default in
-# ng_module that depends on @npm//@angular/bazel instead of the
-# output of the //packages/bazel/src/ngc-wrapped ts_library rule. This
-# default is for downstream users that depend on the @angular/bazel npm
-# package. The generated @npm//@angular/bazel/ngc-wrapped target
-# does not work because it does not have the node `--expose-gc` flag
-# set which is required to support the call to `global.gc()`.
-nodejs_binary(
-    name = "@angular/bazel/ngc-wrapped",
-    configuration_env_vars = ["compile"],
-    data = ["@npm//@angular/bazel"],
-    entry_point = "@angular/bazel/src/ngc-wrapped/index.js",
-    install_source_map_support = False,
-    templated_args = ["--node_options=--expose-gc"],
+# When enabled, this flag substitutes dependency versions with snapshot repositories
+# for all packages in this repository. Note that this does not apply to peer
+# dependencies, as they must be installed directly.
+bool_flag(
+    name = "enable_language_server_snapshot_repo_deps",
+    build_setting_default = False,
+)
+
+config_setting(
+    name = "language_server_package_json_use_snapshot_repo_deps",
+    flag_values = {
+        ":enable_language_server_snapshot_repo_deps": "true",
+    },
 )

@@ -1,14 +1,75 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-import {AST} from '../../expression_parser/ast';
+import {AST, BindingPipe} from '../../expression_parser/ast';
+import {ClassPropertyMapping} from '../../property_mapping';
+import {
+  BoundAttribute,
+  BoundEvent,
+  Component,
+  Content,
+  ContentBlock,
+  DeferredBlock,
+  DeferredBlockError,
+  DeferredBlockLoading,
+  DeferredBlockPlaceholder,
+  DeferredTrigger,
+  Directive,
+  Element,
+  ForLoopBlock,
+  ForLoopBlockEmpty,
+  HostElement,
+  IfBlockBranch,
+  LetDeclaration,
+  Node,
+  Reference,
+  SwitchBlockCaseGroup,
+  Template,
+  TextAttribute,
+  Variable,
+} from '../r3_ast';
 
-import {BoundAttribute, BoundEvent, Element, Node, Reference, Template, TextAttribute, Variable} from '../r3_ast';
+/** Node that has a `Scope` associated with it. */
+export type ScopedNode =
+  | Template
+  | SwitchBlockCaseGroup
+  | IfBlockBranch
+  | ForLoopBlock
+  | ForLoopBlockEmpty
+  | DeferredBlock
+  | DeferredBlockError
+  | DeferredBlockLoading
+  | DeferredBlockPlaceholder
+  | Content
+  | ContentBlock
+  | HostElement;
+
+/** Possible values that a reference can be resolved to. */
+export type ReferenceTarget<DirectiveT> =
+  {directive: DirectiveT; node: Exclude<DirectiveOwner, HostElement>} | Element | Template;
+
+/** Entity that is local to the template and defined within the template. */
+export type TemplateEntity = Reference | Variable | LetDeclaration;
+
+/** Nodes that can have directives applied to them. */
+export type DirectiveOwner = Element | Template | Component | Directive | HostElement;
+
+/** Information about a host directive binding that was exposed under conflicting aliases. */
+export interface ConflictingHostDirectiveBinding<DirectiveT> {
+  /** Metadata of the directive that the binding belongs to. */
+  directive: DirectiveT;
+  /** Name of the class member that the binding would write into. */
+  classPropertyName: string;
+  /** Aliases that caused the conflict. */
+  conflictingAliases: Set<string>;
+  /** Type of the binding. */
+  kind: 'input' | 'output';
+}
 
 /*
  * t2 is the replacement for the `TemplateDefinitionBuilder`. It handles the operations of
@@ -22,7 +83,22 @@ import {BoundAttribute, BoundEvent, Element, Node, Reference, Template, TextAttr
 /**
  * A logical target for analysis, which could contain a template or other types of bindings.
  */
-export interface Target { template?: Node[]; }
+export interface Target<DirectiveT> {
+  template?: Node[];
+  host?: {
+    node: HostElement;
+    directives: DirectiveT[];
+  };
+}
+
+/**
+ * A data structure which captures the animation trigger names that are statically resolvable
+ * and whether some names could not be statically evaluated.
+ */
+export interface LegacyAnimationTriggerNames {
+  includesDynamicAnimations: boolean;
+  staticTriggerNames: string[];
+}
 
 /**
  * Metadata regarding a directive that's needed to match it against template elements. This is
@@ -34,6 +110,17 @@ export interface DirectiveMeta {
    */
   name: string;
 
+  /** Reference to the directive declaration site. */
+  ref: {
+    /** Key that uniquely identifies the reference. */
+    key: string;
+
+    // Normally we have some more fields here depending on where the reference originated from.
+  };
+
+  /** The selector for the directive or `null` if there isn't one. */
+  selector: string | null;
+
   /**
    * Whether the directive is a component.
    */
@@ -44,21 +131,66 @@ export interface DirectiveMeta {
    *
    * Goes from property names to field names.
    */
-  inputs: {[property: string]: string | [string, string]};
+  inputs: ClassPropertyMapping;
 
   /**
    * Set of outputs which this directive claims.
    *
    * Goes from property names to field names.
    */
-  outputs: {[property: string]: string};
+  outputs: ClassPropertyMapping;
 
   /**
    * Name under which the directive is exported, if any (exportAs in Angular).
    *
    * Null otherwise
    */
-  exportAs: string|null;
+  exportAs: string[] | null;
+
+  /**
+   * Whether the directive is a structural directive (e.g. `<div *ngIf></div>`).
+   */
+  isStructural: boolean;
+
+  /**
+   * If the directive is a component, includes the selectors of its `ng-content` elements.
+   */
+  ngContentSelectors: string[] | null;
+
+  /**
+   * Whether the template of the component preserves whitespaces.
+   */
+  preserveWhitespaces: boolean;
+
+  /**
+   * The name of legacy animations that the user defines in the component.
+   * Only includes the legacy animation names.
+   */
+  animationTriggerNames: LegacyAnimationTriggerNames | null;
+
+  /** Tracks how the directive was matched. */
+  matchSource: MatchSource;
+}
+
+/**
+ * Metadata regarding a foreign component that's needed to match it against template elements.
+ */
+export interface ForeignComponentMeta {
+  /**
+   * Name of the foreign component (used for matching and debugging).
+   */
+  name: string;
+}
+
+/**
+ * Possible ways that a directive can be matched.
+ */
+export enum MatchSource {
+  /** The directive was matched by its selector. */
+  Selector,
+
+  /** The directive was applied as a host directive. */
+  HostDirective,
 }
 
 /**
@@ -67,7 +199,9 @@ export interface DirectiveMeta {
  *
  * The returned `BoundTarget` has an API for extracting information about the processed target.
  */
-export interface TargetBinder<D extends DirectiveMeta> { bind(target: Target): BoundTarget<D>; }
+export interface TargetBinder<D extends DirectiveMeta> {
+  bind(target: Target<D>): BoundTarget<D>;
+}
 
 /**
  * Result of performing the binding operation against a `Target`.
@@ -81,28 +215,34 @@ export interface BoundTarget<DirectiveT extends DirectiveMeta> {
   /**
    * Get the original `Target` that was bound.
    */
-  readonly target: Target;
+  readonly target: Target<DirectiveT>;
 
   /**
    * For a given template node (either an `Element` or a `Template`), get the set of directives
    * which matched the node, if any.
    */
-  getDirectivesOfNode(node: Element|Template): DirectiveT[]|null;
+  getDirectivesOfNode(node: DirectiveOwner): DirectiveT[] | null;
+
+  /**
+   * For a given template node (usually an `Element`), get the foreign component that matched
+   * the node, if any.
+   */
+  getForeignComponent(element: Element): ForeignComponentMeta | null;
 
   /**
    * For a given `Reference`, get the reference's target - either an `Element`, a `Template`, or
    * a directive on a particular node.
    */
-  getReferenceTarget(ref: Reference): {directive: DirectiveT, node: Element|Template}|Element
-      |Template|null;
+  getReferenceTarget(ref: Reference): ReferenceTarget<DirectiveT> | null;
 
   /**
    * For a given binding, get the entity to which the binding is being made.
    *
    * This will either be a directive or the node itself.
    */
-  getConsumerOfBinding(binding: BoundAttribute|BoundEvent|TextAttribute): DirectiveT|Element
-      |Template|null;
+  getConsumerOfBinding(
+    binding: BoundAttribute | BoundEvent | TextAttribute,
+  ): DirectiveT | Element | Template | null;
 
   /**
    * If the given `AST` expression refers to a `Reference` or `Variable` within the `Target`, then
@@ -113,27 +253,92 @@ export interface BoundTarget<DirectiveT extends DirectiveMeta> {
    * This is only defined for `AST` expressions that read or write to a property of an
    * `ImplicitReceiver`.
    */
-  getExpressionTarget(expr: AST): Reference|Variable|null;
+  getExpressionTarget(expr: AST): TemplateEntity | null;
 
   /**
-   * Given a particular `Reference` or `Variable`, get the `Template` which created it.
+   * Given a particular `Reference` or `Variable`, get the `ScopedNode` which created it.
    *
-   * All `Variable`s are defined on templates, so this will always return a value for a `Variable`
-   * from the `Target`. For `Reference`s this only returns a value if the `Reference` points to a
-   * `Template`. Returns `null` otherwise.
+   * All `Variable`s are defined on node, so this will always return a value for a `Variable`
+   * from the `Target`. Returns `null` otherwise.
    */
-  getTemplateOfSymbol(symbol: Reference|Variable): Template|null;
+  getDefinitionNodeOfSymbol(symbol: TemplateEntity): ScopedNode | null;
 
   /**
-   * Get the nesting level of a particular `Template`.
+   * Get the nesting level of a particular `ScopedNode`.
    *
-   * This starts at 1 for top-level `Template`s within the `Target` and increases for `Template`s
+   * This starts at 1 for top-level nodes within the `Target` and increases for nodes
    * nested at deeper levels.
    */
-  getNestingLevel(template: Template): number;
+  getNestingLevel(node: ScopedNode): number;
 
   /**
-   * Get a list of all the directives used by the target.
+   * Get all `Reference`s and `Variables` visible within the given `ScopedNode` (or at the top
+   * level, if `null` is passed).
+   */
+  getEntitiesInScope(node: ScopedNode | null): ReadonlySet<TemplateEntity>;
+
+  /**
+   * Get a list of all the directives used by the target,
+   * including directives from `@defer` blocks.
    */
   getUsedDirectives(): DirectiveT[];
+
+  /**
+   * Get a list of eagerly used directives from the target.
+   * Note: this list *excludes* directives from `@defer` blocks.
+   */
+  getEagerlyUsedDirectives(): DirectiveT[];
+
+  /**
+   * Get a list of all the pipes used by the target,
+   * including pipes from `@defer` blocks.
+   */
+  getUsedPipes(): string[];
+
+  /**
+   * Get a list of eagerly used pipes from the target.
+   * Note: this list *excludes* pipes from `@defer` blocks.
+   */
+  getEagerlyUsedPipes(): string[];
+
+  /**
+   * Get a list of all `@defer` blocks used by the target.
+   */
+  getDeferBlocks(): DeferredBlock[];
+
+  /**
+   * Gets the element that a specific deferred block trigger is targeting.
+   * @param block Block that the trigger belongs to.
+   * @param trigger Trigger whose target is being looked up.
+   */
+  getDeferredTriggerTarget(block: DeferredBlock, trigger: DeferredTrigger): Element | null;
+
+  /**
+   * Whether a given node is located in a `@defer` block.
+   */
+  isDeferred(node: DirectiveOwner): boolean;
+
+  /**
+   * Gets the list of `@defer` blocks enclosing a given element, ordered from outermost to innermost.
+   */
+  getDeferBlocksOfNode(node: DirectiveOwner): DeferredBlock[];
+
+  /**
+   * Gets the list of `@defer` blocks enclosing a given pipe, ordered from outermost to innermost.
+   */
+  getDeferBlocksOfPipe(ast: BindingPipe): DeferredBlock[];
+
+  /**
+   * Checks whether a component/directive that was referenced directly in the template exists.
+   * @param name Name of the component/directive.
+   */
+  referencedDirectiveExists(name: string): boolean;
+
+  /**
+   * Returns any cases of conflicting host bindings that were detected during directive matching.
+   * @param node Node for which to look up the conflicting bindings.
+   */
+  getConflictingHostDirectiveBindings(
+    node: DirectiveOwner,
+  ): ConflictingHostDirectiveBinding<DirectiveT>[] | null;
 }

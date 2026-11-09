@@ -1,9 +1,9 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 //////////////////////////////////////
@@ -29,76 +29,262 @@
 
 import * as core from './core';
 import {publishFacade} from './jit_compiler_facade';
+import * as outputAst from './output/output_ast';
 import {global} from './util';
 
+export {CUSTOM_ELEMENTS_SCHEMA, NO_ERRORS_SCHEMA, SchemaMetadata} from './core';
 export {core};
 
-export * from './version';
-export * from './template_parser/template_ast';
 export {CompilerConfig, preserveWhitespacesDefault} from './config';
-export * from './compile_metadata';
-export * from './aot/compiler_factory';
-export * from './aot/compiler';
-export * from './aot/generated_file';
-export * from './aot/compiler_options';
-export * from './aot/compiler_host';
-export * from './aot/formatted_error';
-export * from './aot/partial_module';
-export * from './aot/static_reflector';
-export * from './aot/static_symbol';
-export * from './aot/static_symbol_resolver';
-export * from './aot/summary_resolver';
-export {isLoweredSymbol, createLoweredSymbol} from './aot/util';
-export {LazyRoute} from './aot/lazy_routes';
-export * from './ast_path';
-export * from './summary_resolver';
-export {Identifiers} from './identifiers';
-export {JitCompiler} from './jit/compiler';
-export * from './compile_reflector';
-export * from './url_resolver';
-export * from './resource_loader';
 export {ConstantPool} from './constant_pool';
-export {DirectiveResolver} from './directive_resolver';
-export {PipeResolver} from './pipe_resolver';
-export {NgModuleResolver} from './ng_module_resolver';
-export {DEFAULT_INTERPOLATION_CONFIG, InterpolationConfig} from './ml_parser/interpolation_config';
-export * from './schema/element_schema_registry';
-export * from './i18n/index';
-export * from './directive_normalizer';
+export {
+  ChangeDetectionStrategy,
+  emitDistinctChangesOnlyDefaultValue,
+  ViewEncapsulation,
+} from './core';
 export * from './expression_parser/ast';
 export * from './expression_parser/lexer';
 export * from './expression_parser/parser';
-export * from './metadata_resolver';
+export * from './i18n/index';
+export * from './injectable_compiler_2';
+export * from './service_compiler';
+export {publishFacade} from './jit_compiler_facade';
 export * from './ml_parser/ast';
 export * from './ml_parser/html_parser';
 export * from './ml_parser/html_tags';
-export * from './ml_parser/interpolation_config';
+export {
+  ClassPropertyMapping,
+  ClassPropertyName,
+  InputOrOutput,
+  BindingPropertyName,
+} from './property_mapping';
+export {MatchSource} from './render3/view/t2_api';
+export {LexerRange} from './ml_parser/lexer';
+export {ParseTreeResult, TreeError} from './ml_parser/parser';
 export * from './ml_parser/tags';
-export {NgModuleCompiler} from './ng_module_compiler';
-export {ArrayType, AssertNotNull, BinaryOperator, BinaryOperatorExpr, BuiltinMethod, BuiltinType, BuiltinTypeName, BuiltinVar, CastExpr, ClassField, ClassMethod, ClassStmt, CommaExpr, CommentStmt, ConditionalExpr, DeclareFunctionStmt, DeclareVarStmt, Expression, ExpressionStatement, ExpressionType, ExpressionVisitor, ExternalExpr, ExternalReference, FunctionExpr, IfStmt, InstantiateExpr, InvokeFunctionExpr, InvokeMethodExpr, JSDocCommentStmt, LiteralArrayExpr, LiteralExpr, LiteralMapExpr, MapType, NotExpr, ReadKeyExpr, ReadPropExpr, ReadVarExpr, ReturnStatement, StatementVisitor, ThrowStmt, TryCatchStmt, Type, TypeVisitor, WrappedNodeExpr, WriteKeyExpr, WritePropExpr, WriteVarExpr, StmtModifier, Statement, TypeofExpr, collectExternalReferences} from './output/output_ast';
-export {EmitterVisitorContext} from './output/abstract_emitter';
-export * from './output/ts_emitter';
-export * from './parse_util';
-export * from './schema/dom_element_schema_registry';
-export * from './selector';
-export * from './style_compiler';
-export * from './template_parser/template_parser';
-export {ViewCompiler} from './view_compiler/view_compiler';
-export {getParseErrors, isSyntaxError, syntaxError, Version} from './util';
+export {TokenType as LexerTokenType} from './ml_parser/tokens';
+export * from './ml_parser/xml_parser';
+export {EmitterVisitorContext, AbstractEmitterVisitor} from './output/abstract_emitter';
+export {
+  ArrayType,
+  ArrowFunctionExpr,
+  BinaryOperator,
+  BinaryOperatorExpr,
+  BuiltinType,
+  BuiltinTypeName,
+  CommaExpr,
+  ConditionalExpr,
+  DeclareFunctionStmt,
+  DeclareVarStmt,
+  DYNAMIC_TYPE,
+  DynamicImportExpr,
+  Expression,
+  ExpressionStatement,
+  ExpressionType,
+  ExpressionVisitor,
+  ExternalExpr,
+  ExternalReference,
+  FunctionExpr,
+  IfStmt,
+  InstantiateExpr,
+  InvokeFunctionExpr,
+  jsDocComment,
+  JSDocComment,
+  leadingComment,
+  LeadingComment,
+  literal,
+  LiteralArrayExpr,
+  LiteralExpr,
+  literalMap,
+  LiteralMapExpr,
+  LocalizedString,
+  MapType,
+  NONE_TYPE,
+  NotExpr,
+  ParenthesizedExpr,
+  ReadKeyExpr,
+  ReadPropExpr,
+  ReadVarExpr,
+  RegularExpressionLiteralExpr,
+  ReturnStatement,
+  Statement,
+  StatementVisitor,
+  StmtModifier,
+  STRING_TYPE,
+  TaggedTemplateLiteralExpr,
+  TemplateLiteralElementExpr,
+  TemplateLiteralExpr,
+  TransplantedType,
+  Type,
+  TypeModifier,
+  TypeofExpr,
+  TypeVisitor,
+  UnaryOperator,
+  UnaryOperatorExpr,
+  VoidExpr,
+  WrappedNodeExpr,
+  LiteralMapPropertyAssignment,
+  LiteralMapSpreadAssignment,
+  SpreadElementExpr,
+} from './output/output_ast';
+export {JitEvaluator} from './output/output_jit';
 export {SourceMap} from './output/source_map';
-export * from './injectable_compiler_2';
+export * from './parse_util';
+export * from './render3/partial/api';
+export {
+  compileComponentDeclareClassMetadata,
+  compileDeclareClassMetadata,
+} from './render3/partial/class_metadata';
+export {
+  compileDeclareComponentFromMetadata,
+  DeclareComponentTemplateInfo,
+} from './render3/partial/component';
+export {compileDeclareDirectiveFromMetadata} from './render3/partial/directive';
+export {compileDeclareFactoryFunction} from './render3/partial/factory';
+export {compileDeclareInjectableFromMetadata} from './render3/partial/injectable';
+export {compileDeclareServiceFromMetadata} from './render3/partial/service';
+export {compileDeclareInjectorFromMetadata} from './render3/partial/injector';
+export {compileDeclareNgModuleFromMetadata} from './render3/partial/ng_module';
+export {compileDeclarePipeFromMetadata} from './render3/partial/pipe';
+export {
+  BlockNode as TmplAstBlockNode,
+  BoundAttribute as TmplAstBoundAttribute,
+  BoundDeferredTrigger as TmplAstBoundDeferredTrigger,
+  BoundEvent as TmplAstBoundEvent,
+  BoundText as TmplAstBoundText,
+  BoundaryBlock as TmplAstBoundaryBlock,
+  BoundaryErrorBlock as TmplAstBoundaryErrorBlock,
+  Content as TmplAstContent,
+  DeferredBlock as TmplAstDeferredBlock,
+  DeferredBlockError as TmplAstDeferredBlockError,
+  DeferredBlockLoading as TmplAstDeferredBlockLoading,
+  DeferredBlockPlaceholder as TmplAstDeferredBlockPlaceholder,
+  DeferredBlockTriggers as TmplAstDeferredBlockTriggers,
+  DeferredTrigger as TmplAstDeferredTrigger,
+  Element as TmplAstElement,
+  ForLoopBlock as TmplAstForLoopBlock,
+  ForLoopBlockEmpty as TmplAstForLoopBlockEmpty,
+  HoverDeferredTrigger as TmplAstHoverDeferredTrigger,
+  Icu as TmplAstIcu,
+  IdleDeferredTrigger as TmplAstIdleDeferredTrigger,
+  IfBlock as TmplAstIfBlock,
+  IfBlockBranch as TmplAstIfBlockBranch,
+  ImmediateDeferredTrigger as TmplAstImmediateDeferredTrigger,
+  InteractionDeferredTrigger as TmplAstInteractionDeferredTrigger,
+  LetDeclaration as TmplAstLetDeclaration,
+  NeverDeferredTrigger as TmplAstNeverDeferredTrigger,
+  Node as TmplAstNode,
+  RecursiveVisitor as TmplAstRecursiveVisitor,
+  Reference as TmplAstReference,
+  SwitchBlock as TmplAstSwitchBlock,
+  SwitchBlockCase as TmplAstSwitchBlockCase,
+  SwitchBlockCaseGroup as TmplAstSwitchBlockCaseGroup,
+  SwitchExhaustiveCheck as TmplAstSwitchExhaustiveCheck,
+  Template as TmplAstTemplate,
+  Text as TmplAstText,
+  TextAttribute as TmplAstTextAttribute,
+  TimerDeferredTrigger as TmplAstTimerDeferredTrigger,
+  UnknownBlock as TmplAstUnknownBlock,
+  Variable as TmplAstVariable,
+  ViewportDeferredTrigger as TmplAstViewportDeferredTrigger,
+  HostElement as TmplAstHostElement,
+  Component as TmplAstComponent,
+  Directive as TmplAstDirective,
+  ContentBlock as TmplAstContentBlock,
+  visitAll as tmplAstVisitAll,
+  Visitor as TmplAstVisitor,
+} from './render3/r3_ast';
+export {compileClassDebugInfo, R3ClassDebugInfo} from './render3/r3_class_debug_info_compiler';
+export {
+  compileClassMetadata,
+  CompileClassMetadataFn,
+  compileComponentClassMetadata,
+  compileCtorParameters,
+  compileOpaqueAsyncClassMetadata,
+  R3ClassMetadata,
+  R3ClassMetadataCtorParameter,
+} from './render3/r3_class_metadata_compiler';
+export {
+  compileFactoryFunction,
+  R3DependencyMetadata,
+  R3FactoryMetadata,
+} from './render3/r3_factory';
+export {
+  compileHmrInitializer,
+  compileHmrUpdateCallback,
+  R3HmrMetadata,
+  R3HmrNamespaceDependency,
+} from './render3/r3_hmr_compiler';
+export {Identifiers as R3Identifiers} from './render3/r3_identifiers';
+export {compileInjector, R3InjectorMetadata} from './render3/r3_injector_compiler';
+export {
+  compileNgModule,
+  R3NgModuleMetadata,
+  R3NgModuleMetadataGlobal,
+  R3NgModuleMetadataKind,
+  R3SelectorScopeMode,
+} from './render3/r3_module_compiler';
+export {compilePipeFromMetadata, R3PipeMetadata} from './render3/r3_pipe_compiler';
+export {
+  createMayBeForwardRefExpression,
+  devOnlyGuardedExpression,
+  ForwardRefHandling,
+  getSafePropertyAccessString,
+  MaybeForwardRefExpression,
+  R3CompiledExpression,
+  R3Reference,
+  isUnsafeObjectKey,
+} from './render3/util';
 export * from './render3/view/api';
-export {BoundAttribute as TmplAstBoundAttribute, BoundEvent as TmplAstBoundEvent, BoundText as TmplAstBoundText, Content as TmplAstContent, Element as TmplAstElement, Node as TmplAstNode, Reference as TmplAstReference, Template as TmplAstTemplate, Text as TmplAstText, TextAttribute as TmplAstTextAttribute, Variable as TmplAstVariable,} from './render3/r3_ast';
+export {
+  compileComponentFromMetadata,
+  compileDeferResolverFunction,
+  compileDirectiveFromMetadata,
+  encapsulateStyle,
+  ParsedHostBindings,
+  parseHostBindings,
+  verifyHostBindings,
+} from './render3/view/compiler';
 export * from './render3/view/t2_api';
 export * from './render3/view/t2_binder';
-export {jitExpression} from './render3/r3_jit';
-export {R3DependencyMetadata, R3FactoryMetadata, R3ResolvedDependencyType} from './render3/r3_factory';
-export {compileInjector, compileNgModule, R3InjectorMetadata, R3NgModuleMetadata} from './render3/r3_module_compiler';
-export {compilePipeFromMetadata, R3PipeMetadata} from './render3/r3_pipe_compiler';
-export {makeBindingParser, parseTemplate} from './render3/view/template';
-export {R3Reference} from './render3/util';
-export {compileBaseDefFromMetadata, R3BaseRefMetaData, compileComponentFromMetadata, compileDirectiveFromMetadata, parseHostBindings} from './render3/view/compiler';
-export {publishFacade} from './jit_compiler_facade';
+export {
+  makeBindingParser,
+  ParsedTemplate,
+  parseTemplate,
+  ParseTemplateOptions,
+} from './render3/view/template';
+export {CombinedRecursiveAstVisitor} from './combined_visitor';
+
+// Note: BindingParser is intentionally exported as a type only, because it should
+// be constructed through `makeBindingParser`, rather than its constructor.
+export {type BindingParser} from './template_parser/binding_parser';
+export {createCssSelectorFromNode} from './render3/view/util';
+export * from './resource_loader';
+export * from './schema/dom_element_schema_registry';
+export * from './schema/element_schema_registry';
+export * from './directive_matching';
+export {Version, escapeRegExp} from './util';
+export * from './version';
+export {outputAst};
+export {CompilerFacadeImpl} from './jit_compiler_facade';
+export {FactoryTarget} from './compiler_facade_interface';
+export {QueryFlags} from './render3/view/query_generation';
+
+export * from './typecheck/api';
+export * from './typecheck/host_bindings';
+export {CommentTriviaType, ExpressionIdentifier} from './typecheck/comments';
+export {OutOfBandDiagnosticRecorder, OutOfBandDiagnosticCategory} from './typecheck/oob';
+export {DomSchemaChecker} from './typecheck/schema';
+export {generateTypeCheckBlock} from './typecheck/type_check_block';
+export {TcbExpr} from './typecheck/ops/codegen';
+export {TcbGenericContextBehavior} from './typecheck/ops/context';
+
+export * from './indexer/api';
+export {type IndexerComponentInfo, IndexingContext} from './indexer/context';
+export {getIndexerTemplateIdentifiers, IndexerVisitor} from './indexer/template';
+export {generateIndexerAnalysis} from './indexer/transform';
+export {LEGACY_OPTIONAL_CHAINING_DEFAULT} from './legacy_optional_chaining_default';
+
 // This file only reexports content of the `src` folder. Keep it that way.
 
 // This function call has a global side effects and publishes the compiler into global namespace for

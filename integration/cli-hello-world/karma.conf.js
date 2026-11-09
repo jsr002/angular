@@ -10,30 +10,37 @@ module.exports = function (config) {
       require('karma-chrome-launcher'),
       require('karma-jasmine-html-reporter'),
       require('karma-coverage-istanbul-reporter'),
-      require('@angular-devkit/build-angular/plugins/karma')
+      require('@angular-devkit/build-angular/plugins/karma'),
     ],
-    client:{
-      clearContext: false // leave Jasmine Spec Runner output visible in browser
+    client: {
+      clearContext: false, // leave Jasmine Spec Runner output visible in browser
     },
     coverageIstanbulReporter: {
-      dir: require('path').join(__dirname, 'coverage'), reports: [ 'html', 'lcovonly' ],
-      fixWebpackSourcePaths: true
-    },
-    angularCli: {
-      environment: 'dev'
+      dir: require('path').join(__dirname, './coverage/latest-app'),
+      reports: ['html', 'lcovonly', 'text-summary'],
+      fixWebpackSourcePaths: true,
     },
     reporters: ['progress', 'kjhtml'],
     port: 9876,
     colors: true,
     logLevel: config.LOG_INFO,
     autoWatch: true,
-    browsers: ['CustomChrome'],
-    singleRun: false,
     customLaunchers: {
-      CustomChrome: {
-        base: 'Chrome',
-        flags: ['--no-sandbox']
-      }
-    }
+      ChromeHeadlessNoSandbox: {
+        base: 'ChromeHeadless',
+        // See /integration/README.md#browser-tests for more info on these args
+        flags: [
+          '--no-sandbox',
+          '--headless',
+          '--disable-gpu',
+          '--disable-dev-shm-usage',
+          '--hide-scrollbars',
+          '--mute-audio',
+        ],
+      },
+    },
+    browsers: ['ChromeHeadlessNoSandbox'],
+    singleRun: false,
+    restartOnFileChange: true,
   });
 };

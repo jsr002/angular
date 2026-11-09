@@ -1,12 +1,21 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-import {NumberFormatStyle, NumberSymbol, getLocaleNumberFormat, getLocaleNumberSymbol, getNumberOfCurrencyDigits} from './locale_data_api';
+import {ɵRuntimeError as RuntimeError} from '@angular/core';
+
+import {RuntimeErrorCode} from '../errors';
+import {
+  getLocaleNumberFormat,
+  getLocaleNumberSymbol,
+  getNumberOfCurrencyDigits,
+  NumberFormatStyle,
+  NumberSymbol,
+} from './locale_data_api';
 
 export const NUMBER_FORMAT_REGEXP = /^(\d+)?\.((\d+)(-(\d+))?)?$/;
 const MAX_DIGITS = 22;
@@ -19,16 +28,26 @@ const CURRENCY_CHAR = '¤';
 const PERCENT_CHAR = '%';
 
 /**
- * Transforms a number to a locale string based on a style and a format
+ * Transforms a number to a locale string based on a style and a format.
  */
 function formatNumberToLocaleString(
-    value: number, pattern: ParsedNumberFormat, locale: string, groupSymbol: NumberSymbol,
-    decimalSymbol: NumberSymbol, digitsInfo?: string, isPercent = false): string {
+  value: number,
+  pattern: ParsedNumberFormat,
+  locale: string,
+  groupSymbol: NumberSymbol,
+  decimalSymbol: NumberSymbol,
+  digitsInfo?: string,
+  isPercent = false,
+): string {
   let formattedText = '';
   let isZero = false;
 
   if (!isFinite(value)) {
-    formattedText = getLocaleNumberSymbol(locale, NumberSymbol.Infinity);
+    // `Number.isNaN` (not `!isFinite`) so NaN uses the locale NaN symbol, not Infinity.
+    formattedText = getLocaleNumberSymbol(
+      locale,
+      Number.isNaN(value) ? NumberSymbol.NaN : NumberSymbol.Infinity,
+    );
   } else {
     let parsedNumber = parseNumber(value);
 
@@ -43,7 +62,10 @@ function formatNumberToLocaleString(
     if (digitsInfo) {
       const parts = digitsInfo.match(NUMBER_FORMAT_REGEXP);
       if (parts === null) {
-        throw new Error(`${digitsInfo} is not a valid digit info`);
+        throw new RuntimeError(
+          RuntimeErrorCode.INVALID_DIGIT_INFO,
+          ngDevMode && `${digitsInfo} is not a valid digit info`,
+        );
       }
       const minIntPart = parts[1];
       const minFractionPart = parts[3];
@@ -59,6 +81,20 @@ function formatNumberToLocaleString(
       } else if (minFractionPart != null && minFraction > maxFraction) {
         maxFraction = minFraction;
       }
+
+      // Prevent DoS via resource exhaustion by capping the maximum padding iterations
+      const MAX_ALLOWED_DIGITS = 100;
+      if (
+        minInt > MAX_ALLOWED_DIGITS ||
+        minFraction > MAX_ALLOWED_DIGITS ||
+        maxFraction > MAX_ALLOWED_DIGITS
+      ) {
+        throw new RuntimeError(
+          RuntimeErrorCode.INVALID_DIGIT_INFO,
+          ngDevMode &&
+            `${digitsInfo} is not a valid digit info. Exceeded maximum limits of ${MAX_ALLOWED_DIGITS} digits.`,
+        );
+      }
     }
 
     roundNumber(parsedNumber, minFraction, maxFraction);
@@ -67,7 +103,7 @@ function formatNumberToLocaleString(
     let integerLen = parsedNumber.integerLen;
     const exponent = parsedNumber.exponent;
     let decimals = [];
-    isZero = digits.every(d => !d);
+    isZero = digits.every((d) => !d);
 
     // pad zeros for small numbers
     for (; integerLen < minInt; integerLen++) {
@@ -128,33 +164,57 @@ function formatNumberToLocaleString(
  *
  * Formats a number as currency using locale rules.
  *
- * Use `currency` to format a number as currency.
+ * @param value The number to format.
+ * @param locale A locale code for the locale format rules to use.
+ * @param currency A string containing the currency symbol or its name,
+ * such as "$" or "Canadian Dollar". Used in output string, but does not affect the operation
+ * of the function.
+ * @param currencyCode The [ISO 4217](https://en.wikipedia.org/wiki/ISO_4217)
+ * currency code, such as `USD` for the US dollar and `EUR` for the euro.
+ * Used to determine the number of digits in the decimal part.
+ * @param digitsInfo Decimal representation options, specified by a string in the following format:
+ * `{minIntegerDigits}.{minFractionDigits}-{maxFractionDigits}`. See `DecimalPipe` for more details.
  *
- * Where:
- * - `value` is a number.
- * - `locale` is a `string` defining the locale to use.
- * - `currency` is the string that represents the currency, it can be its symbol or its name.
- * - `currencyCode` is the [ISO 4217](https://en.wikipedia.org/wiki/ISO_4217) currency code, such
- *    as `USD` for the US dollar and `EUR` for the euro.
- * - `digitInfo` See {@link DecimalPipe} for more details.
+ * @returns The formatted currency value.
+ *
+ * @see {@link formatNumber}
+ * @see {@link DecimalPipe}
+ * @see [Internationalization (i18n) Guide](guide/i18n)
  *
  * @publicApi
  */
 export function formatCurrency(
-    value: number, locale: string, currency: string, currencyCode?: string,
-    digitsInfo?: string): string {
+  value: number,
+  locale: string,
+  currency: string,
+  currencyCode?: string,
+  digitsInfo?: string,
+): string {
   const format = getLocaleNumberFormat(locale, NumberFormatStyle.Currency);
   const pattern = parseNumberFormat(format, getLocaleNumberSymbol(locale, NumberSymbol.MinusSign));
 
-  pattern.minFrac = getNumberOfCurrencyDigits(currencyCode !);
+  pattern.minFrac = getNumberOfCurrencyDigits(currencyCode!);
   pattern.maxFrac = pattern.minFrac;
 
   const res = formatNumberToLocaleString(
-      value, pattern, locale, NumberSymbol.CurrencyGroup, NumberSymbol.CurrencyDecimal, digitsInfo);
-  return res
+    value,
+    pattern,
+    locale,
+    NumberSymbol.CurrencyGroup,
+    NumberSymbol.CurrencyDecimal,
+    digitsInfo,
+  );
+  return (
+    res
       .replace(CURRENCY_CHAR, currency)
       // if we have 2 time the currency character, the second one is ignored
-      .replace(CURRENCY_CHAR, '');
+      .replace(CURRENCY_CHAR, '')
+      // If there is a spacing between currency character and the value and
+      // the currency character is suppressed by passing an empty string, the
+      // spacing character would remain as part of the string. Then we
+      // should remove it.
+      .trim()
+  );
 }
 
 /**
@@ -163,33 +223,51 @@ export function formatCurrency(
  *
  * Formats a number as a percentage according to locale rules.
  *
- * Where:
- * - `value` is a number.
- * - `locale` is a `string` defining the locale to use.
- * - `digitInfo` See {@link DecimalPipe} for more details.
+ * @param value The number to format.
+ * @param locale A locale code for the locale format rules to use.
+ * @param digitsInfo Decimal representation options, specified by a string in the following format:
+ * `{minIntegerDigits}.{minFractionDigits}-{maxFractionDigits}`. See `DecimalPipe` for more details.
  *
+ * @returns The formatted percentage value.
+ *
+ * @see {@link formatNumber}
+ * @see {@link DecimalPipe}
+ * @see [Internationalization (i18n) Guide](guide/i18n)
  * @publicApi
+ *
  */
 export function formatPercent(value: number, locale: string, digitsInfo?: string): string {
   const format = getLocaleNumberFormat(locale, NumberFormatStyle.Percent);
   const pattern = parseNumberFormat(format, getLocaleNumberSymbol(locale, NumberSymbol.MinusSign));
   const res = formatNumberToLocaleString(
-      value, pattern, locale, NumberSymbol.Group, NumberSymbol.Decimal, digitsInfo, true);
+    value,
+    pattern,
+    locale,
+    NumberSymbol.Group,
+    NumberSymbol.Decimal,
+    digitsInfo,
+    true,
+  );
   return res.replace(
-      new RegExp(PERCENT_CHAR, 'g'), getLocaleNumberSymbol(locale, NumberSymbol.PercentSign));
+    new RegExp(PERCENT_CHAR, 'g'),
+    getLocaleNumberSymbol(locale, NumberSymbol.PercentSign),
+  );
 }
 
 /**
  * @ngModule CommonModule
  * @description
  *
- * Formats a number as text. Group sizing and separator and other locale-specific
- * configurations are based on the locale.
+ * Formats a number as text, with group sizing, separator, and other
+ * parameters based on the locale.
  *
- * Where:
- * - `value` is a number.
- * - `locale` is a `string` defining the locale to use.
- * - `digitInfo` See {@link DecimalPipe} for more details.
+ * @param value The number to format.
+ * @param locale A locale code for the locale format rules to use.
+ * @param digitsInfo Decimal representation options, specified by a string in the following format:
+ * `{minIntegerDigits}.{minFractionDigits}-{maxFractionDigits}`. See `DecimalPipe` for more details.
+ *
+ * @returns The formatted text string.
+ * @see [Internationalization (i18n) Guide](guide/i18n)
  *
  * @publicApi
  */
@@ -197,7 +275,13 @@ export function formatNumber(value: number, locale: string, digitsInfo?: string)
   const format = getLocaleNumberFormat(locale, NumberFormatStyle.Decimal);
   const pattern = parseNumberFormat(format, getLocaleNumberSymbol(locale, NumberSymbol.MinusSign));
   return formatNumberToLocaleString(
-      value, pattern, locale, NumberSymbol.Group, NumberSymbol.Decimal, digitsInfo);
+    value,
+    pattern,
+    locale,
+    NumberSymbol.Group,
+    NumberSymbol.Decimal,
+    digitsInfo,
+  );
 }
 
 interface ParsedNumberFormat {
@@ -230,22 +314,24 @@ function parseNumberFormat(format: string, minusSign = '-'): ParsedNumberFormat 
     negPre: '',
     negSuf: '',
     gSize: 0,
-    lgSize: 0
+    lgSize: 0,
   };
 
   const patternParts = format.split(PATTERN_SEP);
   const positive = patternParts[0];
   const negative = patternParts[1];
 
-  const positiveParts = positive.indexOf(DECIMAL_SEP) !== -1 ?
-      positive.split(DECIMAL_SEP) :
-      [
-        positive.substring(0, positive.lastIndexOf(ZERO_CHAR) + 1),
-        positive.substring(positive.lastIndexOf(ZERO_CHAR) + 1)
-      ],
-        integer = positiveParts[0], fraction = positiveParts[1] || '';
+  const positiveParts =
+      positive.indexOf(DECIMAL_SEP) !== -1
+        ? positive.split(DECIMAL_SEP)
+        : [
+            positive.substring(0, positive.lastIndexOf(ZERO_CHAR) + 1),
+            positive.substring(positive.lastIndexOf(ZERO_CHAR) + 1),
+          ],
+    integer = positiveParts[0],
+    fraction = positiveParts[1] || '';
 
-  p.posPre = integer.substr(0, integer.indexOf(DIGIT_CHAR));
+  p.posPre = integer.substring(0, integer.indexOf(DIGIT_CHAR));
 
   for (let i = 0; i < fraction.length; i++) {
     const ch = fraction.charAt(i);
@@ -260,14 +346,14 @@ function parseNumberFormat(format: string, minusSign = '-'): ParsedNumberFormat 
 
   const groups = integer.split(GROUP_SEP);
   p.gSize = groups[1] ? groups[1].length : 0;
-  p.lgSize = (groups[2] || groups[1]) ? (groups[2] || groups[1]).length : 0;
+  p.lgSize = groups[2] || groups[1] ? (groups[2] || groups[1]).length : 0;
 
   if (negative) {
     const trunkLen = positive.length - p.posPre.length - p.posSuf.length,
-          pos = negative.indexOf(DIGIT_CHAR);
+      pos = negative.indexOf(DIGIT_CHAR);
 
-    p.negPre = negative.substr(0, pos).replace(/'/g, '');
-    p.negSuf = negative.substr(pos + trunkLen).replace(/'/g, '');
+    p.negPre = negative.substring(0, pos).replace(/'/g, '');
+    p.negSuf = negative.slice(pos + trunkLen).replace(/'/g, '');
   } else {
     p.negPre = minusSign + p.posPre;
     p.negSuf = p.posSuf;
@@ -314,7 +400,9 @@ function toPercent(parsedNumber: ParsedNumber): ParsedNumber {
  */
 function parseNumber(num: number): ParsedNumber {
   let numStr = Math.abs(num) + '';
-  let exponent = 0, digits, integerLen;
+  let exponent = 0,
+    digits,
+    integerLen;
   let i, j, zeros;
 
   // Decimal point?
@@ -334,7 +422,8 @@ function parseNumber(num: number): ParsedNumber {
   }
 
   // Count the number of leading zeros.
-  for (i = 0; numStr.charAt(i) === ZERO_CHAR; i++) { /* empty */
+  for (i = 0; numStr.charAt(i) === ZERO_CHAR; i++) {
+    /* empty */
   }
 
   if (i === (zeros = numStr.length)) {
@@ -371,8 +460,11 @@ function parseNumber(num: number): ParsedNumber {
  */
 function roundNumber(parsedNumber: ParsedNumber, minFrac: number, maxFrac: number) {
   if (minFrac > maxFrac) {
-    throw new Error(
-        `The minimum number of digits after fraction (${minFrac}) is higher than the maximum (${maxFrac}).`);
+    throw new RuntimeError(
+      RuntimeErrorCode.INVALID_NUMBER_OF_DIGITS_AFTER_FRACTION,
+      ngDevMode &&
+        `The minimum number of digits after fraction (${minFrac}) is higher than the maximum (${maxFrac}).`,
+    );
   }
 
   let digits = parsedNumber.digits;
@@ -395,7 +487,7 @@ function roundNumber(parsedNumber: ParsedNumber, minFrac: number, maxFrac: numbe
     // We rounded to zero so reset the parsedNumber
     fractionLen = Math.max(0, fractionLen);
     parsedNumber.integerLen = 1;
-    digits.length = Math.max(1, roundAt = fractionSize + 1);
+    digits.length = Math.max(1, (roundAt = fractionSize + 1));
     digits[0] = 0;
     for (let i = 1; i < roundAt; i++) digits[i] = 0;
   }
@@ -421,9 +513,9 @@ function roundNumber(parsedNumber: ParsedNumber, minFrac: number, maxFrac: numbe
   // Any number besides that is optional and can be removed if it's a trailing 0
   const minLen = minFrac + parsedNumber.integerLen;
   // Do any carrying, e.g. a digit was rounded up to 10
-  const carry = digits.reduceRight(function(carry, d, i, digits) {
+  const carry = digits.reduceRight(function (carry, d, i, digits) {
     d = d + carry;
-    digits[i] = d < 10 ? d : d - 10;  // d % 10
+    digits[i] = d < 10 ? d : d - 10; // d % 10
     if (dropTrailingZeros) {
       // Do not keep meaningless fractional trailing zeros (e.g. 15.52000 --> 15.52)
       if (digits[i] === 0 && i >= minLen) {
@@ -432,7 +524,7 @@ function roundNumber(parsedNumber: ParsedNumber, minFrac: number, maxFrac: numbe
         dropTrailingZeros = false;
       }
     }
-    return d >= 10 ? 1 : 0;  // Math.floor(d / 10);
+    return d >= 10 ? 1 : 0; // Math.floor(d / 10);
   }, 0);
   if (carry) {
     digits.unshift(carry);
@@ -443,7 +535,10 @@ function roundNumber(parsedNumber: ParsedNumber, minFrac: number, maxFrac: numbe
 export function parseIntAutoRadix(text: string): number {
   const result: number = parseInt(text);
   if (isNaN(result)) {
-    throw new Error('Invalid integer literal when parsing ' + text);
+    throw new RuntimeError(
+      RuntimeErrorCode.INVALID_INTEGER_LITERAL,
+      ngDevMode && 'Invalid integer literal when parsing ' + text,
+    );
   }
   return result;
 }

@@ -1,23 +1,29 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import {CUSTOM_ELEMENTS_SCHEMA, NO_ERRORS_SCHEMA, SchemaMetadata, SecurityContext} from '../core';
-
-import {isNgContainer, isNgContent} from '../ml_parser/tags';
+import {isNgContainer, isNgContent, splitNsName} from '../ml_parser/tags';
+import {MATH_ML_NAMESPACE, SVG_NAMESPACE} from '../template/pipeline/src/namespaces';
 import {dashCaseToCamelCase} from '../util';
-
-import {SECURITY_SCHEMA} from './dom_security_schema';
+import {checkSecurityContext} from './dom_security_schema';
 import {ElementSchemaRegistry} from './element_schema_registry';
 
 const BOOLEAN = 'boolean';
 const NUMBER = 'number';
 const STRING = 'string';
 const OBJECT = 'object';
+
+function normalizeTagName(tagName: string): string {
+  const tagNameLower = tagName.toLowerCase();
+  const [ns, name] = splitNsName(tagNameLower, false);
+
+  return ns === SVG_NAMESPACE || ns === MATH_ML_NAMESPACE ? `:${ns}:${name}` : name;
+}
 
 /**
  * This array represents the DOM schema. It encodes inheritance, properties, and events.
@@ -75,14 +81,14 @@ const OBJECT = 'object';
 //
 // =================================================================================================
 
-const SCHEMA: string[] = [
-  '[Element]|textContent,%classList,className,id,innerHTML,*beforecopy,*beforecut,*beforepaste,*copy,*cut,*paste,*search,*selectstart,*webkitfullscreenchange,*webkitfullscreenerror,*wheel,outerHTML,#scrollLeft,#scrollTop,slot' +
-      /* added manually to avoid breaking changes */
-      ',*message,*mozfullscreenchange,*mozfullscreenerror,*mozpointerlockchange,*mozpointerlockerror,*webglcontextcreationerror,*webglcontextlost,*webglcontextrestored',
-  '[HTMLElement]^[Element]|accessKey,contentEditable,dir,!draggable,!hidden,innerText,lang,*abort,*auxclick,*blur,*cancel,*canplay,*canplaythrough,*change,*click,*close,*contextmenu,*cuechange,*dblclick,*drag,*dragend,*dragenter,*dragleave,*dragover,*dragstart,*drop,*durationchange,*emptied,*ended,*error,*focus,*gotpointercapture,*input,*invalid,*keydown,*keypress,*keyup,*load,*loadeddata,*loadedmetadata,*loadstart,*lostpointercapture,*mousedown,*mouseenter,*mouseleave,*mousemove,*mouseout,*mouseover,*mouseup,*mousewheel,*pause,*play,*playing,*pointercancel,*pointerdown,*pointerenter,*pointerleave,*pointermove,*pointerout,*pointerover,*pointerup,*progress,*ratechange,*reset,*resize,*scroll,*seeked,*seeking,*select,*show,*stalled,*submit,*suspend,*timeupdate,*toggle,*volumechange,*waiting,outerText,!spellcheck,%style,#tabIndex,title,!translate',
-  'abbr,address,article,aside,b,bdi,bdo,cite,code,dd,dfn,dt,em,figcaption,figure,footer,header,i,kbd,main,mark,nav,noscript,rb,rp,rt,rtc,ruby,s,samp,section,small,strong,sub,sup,u,var,wbr^[HTMLElement]|accessKey,contentEditable,dir,!draggable,!hidden,innerText,lang,*abort,*auxclick,*blur,*cancel,*canplay,*canplaythrough,*change,*click,*close,*contextmenu,*cuechange,*dblclick,*drag,*dragend,*dragenter,*dragleave,*dragover,*dragstart,*drop,*durationchange,*emptied,*ended,*error,*focus,*gotpointercapture,*input,*invalid,*keydown,*keypress,*keyup,*load,*loadeddata,*loadedmetadata,*loadstart,*lostpointercapture,*mousedown,*mouseenter,*mouseleave,*mousemove,*mouseout,*mouseover,*mouseup,*mousewheel,*pause,*play,*playing,*pointercancel,*pointerdown,*pointerenter,*pointerleave,*pointermove,*pointerout,*pointerover,*pointerup,*progress,*ratechange,*reset,*resize,*scroll,*seeked,*seeking,*select,*show,*stalled,*submit,*suspend,*timeupdate,*toggle,*volumechange,*waiting,outerText,!spellcheck,%style,#tabIndex,title,!translate',
-  'media^[HTMLElement]|!autoplay,!controls,%controlsList,%crossOrigin,#currentTime,!defaultMuted,#defaultPlaybackRate,!disableRemotePlayback,!loop,!muted,*encrypted,*waitingforkey,#playbackRate,preload,src,%srcObject,#volume',
-  ':svg:^[HTMLElement]|*abort,*auxclick,*blur,*cancel,*canplay,*canplaythrough,*change,*click,*close,*contextmenu,*cuechange,*dblclick,*drag,*dragend,*dragenter,*dragleave,*dragover,*dragstart,*drop,*durationchange,*emptied,*ended,*error,*focus,*gotpointercapture,*input,*invalid,*keydown,*keypress,*keyup,*load,*loadeddata,*loadedmetadata,*loadstart,*lostpointercapture,*mousedown,*mouseenter,*mouseleave,*mousemove,*mouseout,*mouseover,*mouseup,*mousewheel,*pause,*play,*playing,*pointercancel,*pointerdown,*pointerenter,*pointerleave,*pointermove,*pointerout,*pointerover,*pointerup,*progress,*ratechange,*reset,*resize,*scroll,*seeked,*seeking,*select,*show,*stalled,*submit,*suspend,*timeupdate,*toggle,*volumechange,*waiting,%style,#tabIndex',
+export const SCHEMA: string[] = [
+  '[Element]|textContent,%ariaActiveDescendantElement,%ariaAtomic,%ariaAutoComplete,%ariaBusy,%ariaChecked,%ariaColCount,%ariaColIndex,%ariaColIndexText,%ariaColSpan,%ariaControlsElements,%ariaCurrent,%ariaDescribedByElements,%ariaDescription,%ariaDetailsElements,%ariaDisabled,%ariaErrorMessageElements,%ariaExpanded,%ariaFlowToElements,%ariaHasPopup,%ariaHidden,%ariaInvalid,%ariaKeyShortcuts,%ariaLabel,%ariaLabelledByElements,%ariaLevel,%ariaLive,%ariaModal,%ariaMultiLine,%ariaMultiSelectable,%ariaOrientation,%ariaOwnsElements,%ariaPlaceholder,%ariaPosInSet,%ariaPressed,%ariaReadOnly,%ariaRelevant,%ariaRequired,%ariaRoleDescription,%ariaRowCount,%ariaRowIndex,%ariaRowIndexText,%ariaRowSpan,%ariaSelected,%ariaSetSize,%ariaSort,%ariaValueMax,%ariaValueMin,%ariaValueNow,%ariaValueText,%classList,className,elementTiming,id,innerHTML,*beforecopy,*beforecut,*beforepaste,*fullscreenchange,*fullscreenerror,*search,*webkitfullscreenchange,*webkitfullscreenerror,outerHTML,%part,#scrollLeft,#scrollTop,slot' +
+    /* added manually to avoid breaking changes */
+    ',*message,*mozfullscreenchange,*mozfullscreenerror,*mozpointerlockchange,*mozpointerlockerror,*webglcontextcreationerror,*webglcontextlost,*webglcontextrestored',
+  '[HTMLElement]^[Element]|accessKey,autocapitalize,!autofocus,contentEditable,dir,!draggable,enterKeyHint,!hidden,!inert,innerText,inputMode,lang,nonce,*abort,*animationend,*animationiteration,*animationstart,*auxclick,*beforexrselect,*blur,*cancel,*canplay,*canplaythrough,*change,*click,*close,*contextmenu,*copy,*cuechange,*cut,*dblclick,*drag,*dragend,*dragenter,*dragleave,*dragover,*dragstart,*drop,*durationchange,*emptied,*ended,*error,*focus,*formdata,*gotpointercapture,*input,*invalid,*keydown,*keypress,*keyup,*load,*loadeddata,*loadedmetadata,*loadstart,*lostpointercapture,*mousedown,*mouseenter,*mouseleave,*mousemove,*mouseout,*mouseover,*mouseup,*mousewheel,*paste,*pause,*play,*playing,*pointercancel,*pointerdown,*pointerenter,*pointerleave,*pointermove,*pointerout,*pointerover,*pointerrawupdate,*pointerup,*progress,*ratechange,*reset,*resize,*scroll,*securitypolicyviolation,*seeked,*seeking,*select,*selectionchange,*selectstart,*slotchange,*stalled,*submit,*suspend,*timeupdate,*toggle,*transitioncancel,*transitionend,*transitionrun,*transitionstart,*volumechange,*waiting,*webkitanimationend,*webkitanimationiteration,*webkitanimationstart,*webkittransitionend,*wheel,outerText,popover,!spellcheck,%style,#tabIndex,title,!translate,virtualKeyboardPolicy',
+  'abbr,address,article,aside,b,bdi,bdo,cite,content,code,dd,dfn,dt,em,figcaption,figure,footer,header,hgroup,i,kbd,main,mark,nav,noscript,rb,rp,rt,rtc,ruby,s,samp,search,section,small,strong,sub,sup,u,var,wbr^[HTMLElement]|accessKey,autocapitalize,!autofocus,contentEditable,dir,!draggable,enterKeyHint,!hidden,innerText,inputMode,lang,nonce,*abort,*animationend,*animationiteration,*animationstart,*auxclick,*beforexrselect,*blur,*cancel,*canplay,*canplaythrough,*change,*click,*close,*contextmenu,*copy,*cuechange,*cut,*dblclick,*drag,*dragend,*dragenter,*dragleave,*dragover,*dragstart,*drop,*durationchange,*emptied,*ended,*error,*focus,*formdata,*gotpointercapture,*input,*invalid,*keydown,*keypress,*keyup,*load,*loadeddata,*loadedmetadata,*loadstart,*lostpointercapture,*mousedown,*mouseenter,*mouseleave,*mousemove,*mouseout,*mouseover,*mouseup,*mousewheel,*paste,*pause,*play,*playing,*pointercancel,*pointerdown,*pointerenter,*pointerleave,*pointermove,*pointerout,*pointerover,*pointerrawupdate,*pointerup,*progress,*ratechange,*reset,*resize,*scroll,*securitypolicyviolation,*seeked,*seeking,*select,*selectionchange,*selectstart,*slotchange,*stalled,*submit,*suspend,*timeupdate,*toggle,*transitioncancel,*transitionend,*transitionrun,*transitionstart,*volumechange,*waiting,*webkitanimationend,*webkitanimationiteration,*webkitanimationstart,*webkittransitionend,*wheel,outerText,!spellcheck,%style,#tabIndex,title,!translate,virtualKeyboardPolicy',
+  'media^[HTMLElement]|!autoplay,!controls,%controlsList,%crossOrigin,#currentTime,!defaultMuted,#defaultPlaybackRate,!disableRemotePlayback,!loop,!muted,*encrypted,*waitingforkey,#playbackRate,preload,!preservesPitch,src,%srcObject,#volume',
+  ':svg:^[HTMLElement]|!autofocus,nonce,*abort,*animationend,*animationiteration,*animationstart,*auxclick,*beforexrselect,*blur,*cancel,*canplay,*canplaythrough,*change,*click,*close,*contextmenu,*copy,*cuechange,*cut,*dblclick,*drag,*dragend,*dragenter,*dragleave,*dragover,*dragstart,*drop,*durationchange,*emptied,*ended,*error,*focus,*formdata,*gotpointercapture,*input,*invalid,*keydown,*keypress,*keyup,*load,*loadeddata,*loadedmetadata,*loadstart,*lostpointercapture,*mousedown,*mouseenter,*mouseleave,*mousemove,*mouseout,*mouseover,*mouseup,*mousewheel,*paste,*pause,*play,*playing,*pointercancel,*pointerdown,*pointerenter,*pointerleave,*pointermove,*pointerout,*pointerover,*pointerrawupdate,*pointerup,*progress,*ratechange,*reset,*resize,*scroll,*securitypolicyviolation,*seeked,*seeking,*select,*selectionchange,*selectstart,*slotchange,*stalled,*submit,*suspend,*timeupdate,*toggle,*transitioncancel,*transitionend,*transitionrun,*transitionstart,*volumechange,*waiting,*webkitanimationend,*webkitanimationiteration,*webkitanimationstart,*webkittransitionend,*wheel,%style,#tabIndex',
   ':svg:graphics^:svg:|',
   ':svg:animation^:svg:|*begin,*end,*repeat',
   ':svg:geometry^:svg:|',
@@ -90,16 +96,17 @@ const SCHEMA: string[] = [
   ':svg:gradient^:svg:|',
   ':svg:textContent^:svg:graphics|',
   ':svg:textPositioning^:svg:textContent|',
-  'a^[HTMLElement]|charset,coords,download,hash,host,hostname,href,hreflang,name,password,pathname,ping,port,protocol,referrerPolicy,rel,rev,search,shape,target,text,type,username',
-  'area^[HTMLElement]|alt,coords,download,hash,host,hostname,href,!noHref,password,pathname,ping,port,protocol,referrerPolicy,rel,search,shape,target,username',
+  'a^[HTMLElement]|charset,coords,download,hash,host,hostname,href,hreflang,name,password,pathname,ping,port,protocol,referrerPolicy,rel,%relList,rev,search,shape,target,text,type,username',
+  'area^[HTMLElement]|alt,coords,download,hash,host,hostname,href,!noHref,password,pathname,ping,port,protocol,referrerPolicy,rel,%relList,search,shape,target,username',
   'audio^media|',
   'br^[HTMLElement]|clear',
   'base^[HTMLElement]|href,target',
-  'body^[HTMLElement]|aLink,background,bgColor,link,*beforeunload,*blur,*error,*focus,*hashchange,*languagechange,*load,*message,*offline,*online,*pagehide,*pageshow,*popstate,*rejectionhandled,*resize,*scroll,*storage,*unhandledrejection,*unload,text,vLink',
-  'button^[HTMLElement]|!autofocus,!disabled,formAction,formEnctype,formMethod,!formNoValidate,formTarget,name,type,value',
+  'body^[HTMLElement]|aLink,background,bgColor,link,*afterprint,*beforeprint,*beforeunload,*blur,*error,*focus,*hashchange,*languagechange,*load,*message,*messageerror,*offline,*online,*pagehide,*pageshow,*popstate,*rejectionhandled,*resize,*scroll,*storage,*unhandledrejection,*unload,text,vLink',
+  'button^[HTMLElement]|!disabled,formAction,formEnctype,formMethod,!formNoValidate,formTarget,name,popoverTargetAction,%popoverTargetElement,type,value',
   'canvas^[HTMLElement]|#height,#width',
   'content^[HTMLElement]|select',
   'dl^[HTMLElement]|!compact',
+  'data^[HTMLElement]|value',
   'datalist^[HTMLElement]|',
   'details^[HTMLElement]|!open',
   'dialog^[HTMLElement]|!open,returnValue',
@@ -110,22 +117,23 @@ const SCHEMA: string[] = [
   'font^[HTMLElement]|color,face,size',
   'form^[HTMLElement]|acceptCharset,action,autocomplete,encoding,enctype,method,name,!noValidate,target',
   'frame^[HTMLElement]|frameBorder,longDesc,marginHeight,marginWidth,name,!noResize,scrolling,src',
-  'frameset^[HTMLElement]|cols,*beforeunload,*blur,*error,*focus,*hashchange,*languagechange,*load,*message,*offline,*online,*pagehide,*pageshow,*popstate,*rejectionhandled,*resize,*scroll,*storage,*unhandledrejection,*unload,rows',
+  'frameset^[HTMLElement]|cols,*afterprint,*beforeprint,*beforeunload,*blur,*error,*focus,*hashchange,*languagechange,*load,*message,*messageerror,*offline,*online,*pagehide,*pageshow,*popstate,*rejectionhandled,*resize,*scroll,*storage,*unhandledrejection,*unload,rows',
+  'geolocation^[HTMLElement]|accuracymode,!autolocate,*location,*promptaction,*promptdismiss,*validationstatuschange,!watch',
   'hr^[HTMLElement]|align,color,!noShade,size,width',
   'head^[HTMLElement]|',
   'h1,h2,h3,h4,h5,h6^[HTMLElement]|align',
   'html^[HTMLElement]|version',
-  'iframe^[HTMLElement]|align,!allowFullscreen,frameBorder,height,longDesc,marginHeight,marginWidth,name,referrerPolicy,%sandbox,scrolling,src,srcdoc,width',
-  'img^[HTMLElement]|align,alt,border,%crossOrigin,#height,#hspace,!isMap,longDesc,lowsrc,name,referrerPolicy,sizes,src,srcset,useMap,#vspace,#width',
-  'input^[HTMLElement]|accept,align,alt,autocapitalize,autocomplete,!autofocus,!checked,!defaultChecked,defaultValue,dirName,!disabled,%files,formAction,formEnctype,formMethod,!formNoValidate,formTarget,#height,!incremental,!indeterminate,max,#maxLength,min,#minLength,!multiple,name,pattern,placeholder,!readOnly,!required,selectionDirection,#selectionEnd,#selectionStart,#size,src,step,type,useMap,value,%valueAsDate,#valueAsNumber,#width',
+  'iframe^[HTMLElement]|align,allow,!allowFullscreen,!allowPaymentRequest,csp,!credentialless,frameBorder,height,loading,longDesc,marginHeight,marginWidth,name,referrerPolicy,%sandbox,scrolling,src,srcdoc,width',
+  'img^[HTMLElement]|align,alt,border,%crossOrigin,decoding,#height,#hspace,!isMap,loading,longDesc,lowsrc,name,referrerPolicy,sizes,src,srcset,useMap,#vspace,#width',
+  'input^[HTMLElement]|accept,align,alt,autocomplete,!checked,!defaultChecked,defaultValue,dirName,!disabled,%files,formAction,formEnctype,formMethod,!formNoValidate,formTarget,#height,!incremental,!indeterminate,max,#maxLength,min,#minLength,!multiple,name,pattern,placeholder,popoverTargetAction,%popoverTargetElement,!readOnly,!required,selectionDirection,#selectionEnd,#selectionStart,#size,src,step,type,useMap,value,%valueAsDate,#valueAsNumber,#width',
   'li^[HTMLElement]|type,#value',
   'label^[HTMLElement]|htmlFor',
   'legend^[HTMLElement]|align',
-  'link^[HTMLElement]|as,charset,%crossOrigin,!disabled,href,hreflang,integrity,media,referrerPolicy,rel,%relList,rev,%sizes,target,type',
+  'link^[HTMLElement]|as,charset,%crossOrigin,!disabled,href,hreflang,imageSizes,imageSrcset,integrity,media,referrerPolicy,rel,%relList,rev,%sizes,target,type',
   'map^[HTMLElement]|name',
   'marquee^[HTMLElement]|behavior,bgColor,direction,height,#hspace,#loop,#scrollAmount,#scrollDelay,!trueSpeed,#vspace,width',
   'menu^[HTMLElement]|!compact',
-  'meta^[HTMLElement]|content,httpEquiv,name,scheme',
+  'meta^[HTMLElement]|content,httpEquiv,media,name,scheme',
   'meter^[HTMLElement]|#high,#low,#max,#min,#optimum,#value',
   'ins,del^[HTMLElement]|cite,dateTime',
   'ol^[HTMLElement]|!compact,!reversed,#start,type',
@@ -139,13 +147,14 @@ const SCHEMA: string[] = [
   'pre^[HTMLElement]|#width',
   'progress^[HTMLElement]|#max,#value',
   'q,blockquote,cite^[HTMLElement]|',
-  'script^[HTMLElement]|!async,charset,%crossOrigin,!defer,event,htmlFor,integrity,src,text,type',
-  'select^[HTMLElement]|!autofocus,!disabled,#length,!multiple,name,!required,#selectedIndex,#size,value',
-  'shadow^[HTMLElement]|',
+  'script^[HTMLElement]|!async,charset,%crossOrigin,!defer,event,htmlFor,integrity,!noModule,%referrerPolicy,src,text,type',
+  'select^[HTMLElement]|autocomplete,!disabled,#length,!multiple,name,!required,#selectedIndex,#size,value',
+  'selectedcontent^[HTMLElement]|',
   'slot^[HTMLElement]|name',
-  'source^[HTMLElement]|media,sizes,src,srcset,type',
+  'source^[HTMLElement]|#height,media,sizes,src,srcset,type,#width',
   'span^[HTMLElement]|',
   'style^[HTMLElement]|!disabled,media,type',
+  'search^[HTMLELement]|',
   'caption^[HTMLElement]|align',
   'th,td^[HTMLElement]|abbr,align,axis,bgColor,ch,chOff,#colSpan,headers,height,!noWrap,#rowSpan,scope,vAlign,width',
   'col,colgroup^[HTMLElement]|align,ch,chOff,#span,vAlign,width',
@@ -153,12 +162,13 @@ const SCHEMA: string[] = [
   'tr^[HTMLElement]|align,bgColor,ch,chOff,vAlign',
   'tfoot,thead,tbody^[HTMLElement]|align,ch,chOff,vAlign',
   'template^[HTMLElement]|',
-  'textarea^[HTMLElement]|autocapitalize,!autofocus,#cols,defaultValue,dirName,!disabled,#maxLength,#minLength,name,placeholder,!readOnly,!required,#rows,selectionDirection,#selectionEnd,#selectionStart,value,wrap',
+  'textarea^[HTMLElement]|autocomplete,#cols,defaultValue,dirName,!disabled,#maxLength,#minLength,name,placeholder,!readOnly,!required,#rows,selectionDirection,#selectionEnd,#selectionStart,value,wrap',
+  'time^[HTMLElement]|dateTime',
   'title^[HTMLElement]|text',
   'track^[HTMLElement]|!default,kind,label,src,srclang',
   'ul^[HTMLElement]|!compact,type',
   'unknown^[HTMLElement]|',
-  'video^media|#height,poster,#width',
+  'video^media|!disablePictureInPicture,#height,*enterpictureinpicture,*leavepictureinpicture,!playsInline,poster,#width',
   ':svg:a^:svg:graphics|',
   ':svg:animate^:svg:animation|',
   ':svg:animateMotion^:svg:animation|',
@@ -197,7 +207,7 @@ const SCHEMA: string[] = [
   ':svg:filter^:svg:|',
   ':svg:foreignObject^:svg:graphics|',
   ':svg:g^:svg:graphics|',
-  ':svg:image^:svg:graphics|',
+  ':svg:image^:svg:graphics|decoding',
   ':svg:line^:svg:geometry|',
   ':svg:linearGradient^:svg:gradient|',
   ':svg:mpath^:svg:|',
@@ -229,66 +239,169 @@ const SCHEMA: string[] = [
   'summary^[HTMLElement]|',
   'time^[HTMLElement]|dateTime',
   ':svg:cursor^:svg:|',
+  ':math:^[HTMLElement]|!autofocus,nonce,*abort,*animationend,*animationiteration,*animationstart,*auxclick,*beforeinput,*beforematch,*beforetoggle,*beforexrselect,*blur,*cancel,*canplay,*canplaythrough,*change,*click,*close,*contentvisibilityautostatechange,*contextlost,*contextmenu,*contextrestored,*copy,*cuechange,*cut,*dblclick,*drag,*dragend,*dragenter,*dragleave,*dragover,*dragstart,*drop,*durationchange,*emptied,*ended,*error,*focus,*formdata,*gotpointercapture,*input,*invalid,*keydown,*keypress,*keyup,*load,*loadeddata,*loadedmetadata,*loadstart,*lostpointercapture,*mousedown,*mouseenter,*mouseleave,*mousemove,*mouseout,*mouseover,*mouseup,*mousewheel,*paste,*pause,*play,*playing,*pointercancel,*pointerdown,*pointerenter,*pointerleave,*pointermove,*pointerout,*pointerover,*pointerrawupdate,*pointerup,*progress,*ratechange,*reset,*resize,*scroll,*scrollend,*securitypolicyviolation,*seeked,*seeking,*select,*selectionchange,*selectstart,*slotchange,*stalled,*submit,*suspend,*timeupdate,*toggle,*transitioncancel,*transitionend,*transitionrun,*transitionstart,*volumechange,*waiting,*webkitanimationend,*webkitanimationiteration,*webkitanimationstart,*webkittransitionend,*wheel,%style,#tabIndex',
+  ':math:math^:math:|',
+  ':math:maction^:math:|',
+  ':math:menclose^:math:|',
+  ':math:merror^:math:|',
+  ':math:mfenced^:math:|',
+  ':math:mfrac^:math:|',
+  ':math:mi^:math:|',
+  ':math:mmultiscripts^:math:|',
+  ':math:mn^:math:|',
+  ':math:mo^:math:|',
+  ':math:mover^:math:|',
+  ':math:mpadded^:math:|',
+  ':math:mphantom^:math:|',
+  ':math:mroot^:math:|',
+  ':math:mrow^:math:|',
+  ':math:ms^:math:|',
+  ':math:mspace^:math:|',
+  ':math:msqrt^:math:|',
+  ':math:mstyle^:math:|',
+  ':math:msub^:math:|',
+  ':math:msubsup^:math:|',
+  ':math:msup^:math:|',
+  ':math:mtable^:math:|',
+  ':math:mtd^:math:|',
+  ':math:mtext^:math:|',
+  ':math:mtr^:math:|',
+  ':math:munder^:math:|',
+  ':math:munderover^:math:|',
+  ':math:semantics^:math:|',
 ];
 
-const _ATTR_TO_PROP: {[name: string]: string} = {
-  'class': 'className',
-  'for': 'htmlFor',
-  'formaction': 'formAction',
-  'innerHtml': 'innerHTML',
-  'readonly': 'readOnly',
-  'tabindex': 'tabIndex',
-};
+export const _ATTR_TO_PROP = new Map(
+  Object.entries({
+    'class': 'className',
+    'for': 'htmlFor',
+    'formaction': 'formAction',
+    'innerHtml': 'innerHTML',
+    'readonly': 'readOnly',
+    'tabindex': 'tabIndex',
+
+    // https://www.w3.org/TR/wai-aria-1.3/#accessibilityroleandproperties-correspondence
+    'aria-activedescendant': 'ariaActiveDescendantElement',
+    'aria-atomic': 'ariaAtomic',
+    'aria-autocomplete': 'ariaAutoComplete',
+    'aria-busy': 'ariaBusy',
+    'aria-checked': 'ariaChecked',
+    'aria-colcount': 'ariaColCount',
+    'aria-colindex': 'ariaColIndex',
+    'aria-colindextext': 'ariaColIndexText',
+    'aria-colspan': 'ariaColSpan',
+    'aria-controls': 'ariaControlsElements',
+    'aria-current': 'ariaCurrent',
+    'aria-describedby': 'ariaDescribedByElements',
+    'aria-description': 'ariaDescription',
+    'aria-details': 'ariaDetailsElements',
+    'aria-disabled': 'ariaDisabled',
+    'aria-errormessage': 'ariaErrorMessageElements',
+    'aria-expanded': 'ariaExpanded',
+    'aria-flowto': 'ariaFlowToElements',
+    'aria-haspopup': 'ariaHasPopup',
+    'aria-hidden': 'ariaHidden',
+    'aria-invalid': 'ariaInvalid',
+    'aria-keyshortcuts': 'ariaKeyShortcuts',
+    'aria-label': 'ariaLabel',
+    'aria-labelledby': 'ariaLabelledByElements',
+    'aria-level': 'ariaLevel',
+    'aria-live': 'ariaLive',
+    'aria-modal': 'ariaModal',
+    'aria-multiline': 'ariaMultiLine',
+    'aria-multiselectable': 'ariaMultiSelectable',
+    'aria-orientation': 'ariaOrientation',
+    'aria-owns': 'ariaOwnsElements',
+    'aria-placeholder': 'ariaPlaceholder',
+    'aria-posinset': 'ariaPosInSet',
+    'aria-pressed': 'ariaPressed',
+    'aria-readonly': 'ariaReadOnly',
+    'aria-required': 'ariaRequired',
+    'aria-roledescription': 'ariaRoleDescription',
+    'aria-rowcount': 'ariaRowCount',
+    'aria-rowindex': 'ariaRowIndex',
+    'aria-rowindextext': 'ariaRowIndexText',
+    'aria-rowspan': 'ariaRowSpan',
+    'aria-selected': 'ariaSelected',
+    'aria-setsize': 'ariaSetSize',
+    'aria-sort': 'ariaSort',
+    'aria-valuemax': 'ariaValueMax',
+    'aria-valuemin': 'ariaValueMin',
+    'aria-valuenow': 'ariaValueNow',
+    'aria-valuetext': 'ariaValueText',
+  }),
+);
+
+// Invert _ATTR_TO_PROP.
+const _PROP_TO_ATTR = Array.from(_ATTR_TO_PROP).reduce(
+  (inverted, [propertyName, attributeName]) => {
+    inverted.set(propertyName, attributeName);
+    return inverted;
+  },
+  new Map<string, string>(),
+);
 
 export class DomElementSchemaRegistry extends ElementSchemaRegistry {
-  private _schema: {[element: string]: {[property: string]: string}} = {};
+  private _schema = new Map<string, Map<string, string>>();
+  // We don't allow binding to events for security reasons. Allowing event bindings would almost
+  // certainly introduce bad XSS vulnerabilities. Instead, we store events in a separate schema.
+  private _eventSchema = new Map<string, Set<string>>();
+  // Union of all events in `_eventSchema`, built lazily by `isKnownEventOfAnyElement`. Since
+  // events bubble, any known event can be observed on any element, regardless of its tag.
+  private _allKnownEvents: Set<string> | null = null;
 
   constructor() {
     super();
-    SCHEMA.forEach(encodedType => {
-      const type: {[property: string]: string} = {};
+    SCHEMA.forEach((encodedType) => {
+      const type = new Map<string, string>();
+      const events: Set<string> = new Set();
       const [strType, strProperties] = encodedType.split('|');
       const properties = strProperties.split(',');
       const [typeNames, superName] = strType.split('^');
-      typeNames.split(',').forEach(tag => this._schema[tag.toLowerCase()] = type);
-      const superType = superName && this._schema[superName.toLowerCase()];
+      typeNames.split(',').forEach((tag) => {
+        this._schema.set(tag.toLowerCase(), type);
+        this._eventSchema.set(tag.toLowerCase(), events);
+      });
+      const superType = superName && this._schema.get(superName.toLowerCase());
       if (superType) {
-        Object.keys(superType).forEach((prop: string) => { type[prop] = superType[prop]; });
+        for (const [prop, value] of superType) {
+          type.set(prop, value);
+        }
+        for (const superEvent of this._eventSchema.get(superName.toLowerCase())!) {
+          events.add(superEvent);
+        }
       }
       properties.forEach((property: string) => {
         if (property.length > 0) {
           switch (property[0]) {
             case '*':
-              // We don't yet support events.
-              // If ever allowing to bind to events, GO THROUGH A SECURITY REVIEW, allowing events
-              // will
-              // almost certainly introduce bad XSS vulnerabilities.
-              // type[property.substring(1)] = EVENT;
+              events.add(property.substring(1));
               break;
             case '!':
-              type[property.substring(1)] = BOOLEAN;
+              type.set(property.substring(1), BOOLEAN);
               break;
             case '#':
-              type[property.substring(1)] = NUMBER;
+              type.set(property.substring(1), NUMBER);
               break;
             case '%':
-              type[property.substring(1)] = OBJECT;
+              type.set(property.substring(1), OBJECT);
               break;
             default:
-              type[property] = STRING;
+              type.set(property, STRING);
           }
         }
       });
     });
   }
 
-  hasProperty(tagName: string, propName: string, schemaMetas: SchemaMetadata[]): boolean {
+  override hasProperty(tagName: string, propName: string, schemaMetas: SchemaMetadata[]): boolean {
     if (schemaMetas.some((schema) => schema.name === NO_ERRORS_SCHEMA.name)) {
       return true;
     }
 
-    if (tagName.indexOf('-') > -1) {
-      if (isNgContainer(tagName) || isNgContent(tagName)) {
+    const normalizedTag = normalizeTagName(tagName);
+    if (normalizedTag.includes('-')) {
+      if (isNgContainer(normalizedTag) || isNgContent(normalizedTag)) {
         return false;
       }
 
@@ -299,17 +412,18 @@ export class DomElementSchemaRegistry extends ElementSchemaRegistry {
       }
     }
 
-    const elementProperties = this._schema[tagName.toLowerCase()] || this._schema['unknown'];
-    return !!elementProperties[propName];
+    const elementProperties = this._schema.get(normalizedTag) || this._schema.get('unknown')!;
+    return elementProperties.has(propName);
   }
 
-  hasElement(tagName: string, schemaMetas: SchemaMetadata[]): boolean {
+  override hasElement(tagName: string, schemaMetas: SchemaMetadata[]): boolean {
     if (schemaMetas.some((schema) => schema.name === NO_ERRORS_SCHEMA.name)) {
       return true;
     }
 
-    if (tagName.indexOf('-') > -1) {
-      if (isNgContainer(tagName) || isNgContent(tagName)) {
+    const normalizedTag = normalizeTagName(tagName);
+    if (normalizedTag.includes('-')) {
+      if (isNgContainer(normalizedTag) || isNgContent(normalizedTag)) {
         return true;
       }
 
@@ -319,7 +433,7 @@ export class DomElementSchemaRegistry extends ElementSchemaRegistry {
       }
     }
 
-    return !!this._schema[tagName.toLowerCase()];
+    return this._schema.has(normalizedTag);
   }
 
   /**
@@ -328,65 +442,95 @@ export class DomElementSchemaRegistry extends ElementSchemaRegistry {
    * Tag and property name are statically known and cannot change at runtime, i.e. it is not
    * possible to bind a value into a changing attribute or tag name.
    *
-   * The filtering is white list based. All attributes in the schema above are assumed to have the
-   * 'NONE' security context, i.e. that they are safe inert string values. Only specific well known
-   * attack vectors are assigned their appropriate context.
+   * The filtering is based on a list of allowed tags|attributes. All attributes in the schema
+   * above are assumed to have the 'NONE' security context, i.e. that they are safe inert
+   * string values. Only specific well known attack vectors are assigned their appropriate context.
    */
-  securityContext(tagName: string, propName: string, isAttribute: boolean): SecurityContext {
+  override securityContext(
+    tagName: string,
+    propName: string,
+    isAttribute: boolean,
+  ): SecurityContext {
     if (isAttribute) {
       // NB: For security purposes, use the mapped property name, not the attribute name.
       propName = this.getMappedPropName(propName);
     }
 
-    // Make sure comparisons are case insensitive, so that case differences between attribute and
-    // property names do not have a security impact.
-    tagName = tagName.toLowerCase();
-    propName = propName.toLowerCase();
-    let ctx = SECURITY_SCHEMA()[tagName + '|' + propName];
-    if (ctx) {
-      return ctx;
-    }
-    ctx = SECURITY_SCHEMA()['*|' + propName];
-    return ctx ? ctx : SecurityContext.NONE;
+    const [ns, name] = splitNsName(tagName, false);
+    return checkSecurityContext(name, propName, ns);
   }
 
-  getMappedPropName(propName: string): string { return _ATTR_TO_PROP[propName] || propName; }
+  override getMappedPropName(propName: string): string {
+    return _ATTR_TO_PROP.get(propName) ?? propName;
+  }
 
-  getDefaultComponentElementName(): string { return 'ng-component'; }
+  override getDefaultComponentElementName(): string {
+    return 'ng-component';
+  }
 
-  validateProperty(name: string): {error: boolean, msg?: string} {
+  override validateProperty(name: string): {error: boolean; msg?: string} {
     if (name.toLowerCase().startsWith('on')) {
-      const msg = `Binding to event property '${name}' is disallowed for security reasons, ` +
-          `please use (${name.slice(2)})=...` +
-          `\nIf '${name}' is a directive input, make sure the directive is imported by the` +
-          ` current module.`;
+      const msg =
+        `Binding to event property '${name}' is disallowed for security reasons, ` +
+        `please use (${name.slice(2)})=...` +
+        `\nIf '${name}' is a directive input, make sure the directive is imported by the` +
+        ` current module.`;
       return {error: true, msg: msg};
     } else {
       return {error: false};
     }
   }
 
-  validateAttribute(name: string): {error: boolean, msg?: string} {
+  override validateAttribute(name: string): {error: boolean; msg?: string} {
     if (name.toLowerCase().startsWith('on')) {
-      const msg = `Binding to event attribute '${name}' is disallowed for security reasons, ` +
-          `please use (${name.slice(2)})=...`;
+      const msg =
+        `Binding to event attribute '${name}' is disallowed for security reasons, ` +
+        `please use (${name.slice(2)})=...`;
       return {error: true, msg: msg};
     } else {
       return {error: false};
     }
   }
 
-  allKnownElementNames(): string[] { return Object.keys(this._schema); }
+  override allKnownElementNames(): string[] {
+    return Array.from(this._schema.keys());
+  }
 
-  normalizeAnimationStyleProperty(propName: string): string {
+  allKnownAttributesOfElement(tagName: string): string[] {
+    const normalizedTag = normalizeTagName(tagName);
+    const elementProperties = this._schema.get(normalizedTag) || this._schema.get('unknown')!;
+    // Convert properties to attributes.
+    return Array.from(elementProperties.keys()).map((prop) => _PROP_TO_ATTR.get(prop) ?? prop);
+  }
+
+  allKnownEventsOfElement(tagName: string): string[] {
+    const normalizedTag = normalizeTagName(tagName);
+    return Array.from(this._eventSchema.get(normalizedTag) ?? []);
+  }
+
+  isKnownEventOfAnyElement(eventName: string): boolean {
+    // Note: `flat()` would not work here since it only flattens nested arrays,
+    // while `_eventSchema` contains `Set`s.
+    this._allKnownEvents ??= new Set(
+      Array.from(this._eventSchema.values()).flatMap((events) => Array.from(events)),
+    );
+    // The schema stores event names in lowercase, but some events have camelCase names at
+    // runtime (e.g. the vendor-prefixed `webkitAnimationEnd`), so compare ignoring case.
+    return this._allKnownEvents.has(eventName.toLowerCase());
+  }
+
+  override normalizeAnimationStyleProperty(propName: string): string {
     return dashCaseToCamelCase(propName);
   }
 
-  normalizeAnimationStyleValue(camelCaseProp: string, userProvidedProp: string, val: string|number):
-      {error: string, value: string} {
+  override normalizeAnimationStyleValue(
+    camelCaseProp: string,
+    userProvidedProp: string,
+    val: string | number,
+  ): {error: string; value: string} {
     let unit: string = '';
     const strVal = val.toString().trim();
-    let errorMsg: string = null !;
+    let errorMsg: string = null!;
 
     if (_isPixelDimensionStyle(camelCaseProp) && val !== 0 && val !== '0') {
       if (typeof val === 'number') {

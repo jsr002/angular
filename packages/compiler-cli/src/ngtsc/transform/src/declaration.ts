@@ -1,66 +1,201 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-import * as ts from 'typescript';
+import {isUnsafeObjectKey, Type} from '@angular/compiler';
+import ts from 'typescript';
 
-import {ImportManager, translateType} from '../../translator';
+import {ImportRewriter, ReferenceEmitter} from '../../imports';
+import {ClassDeclaration, ReflectionHost} from '../../reflection';
+import {
+  ImportManager,
+  presetImportManagerForceNamespaceImports,
+  translateType,
+} from '../../translator';
 
-import {CompileResult} from './api';
+import {DtsTransform} from './api';
 
+/**
+ * Keeps track of `DtsTransform`s per source file, so that it is known which source files need to
+ * have their declaration file transformed.
+ */
+export class DtsTransformRegistry {
+  private ivyDeclarationTransforms = new Map<ts.SourceFile, IvyDeclarationDtsTransform>();
 
+  getIvyDeclarationTransform(sf: ts.SourceFile): IvyDeclarationDtsTransform {
+    if (!this.ivyDeclarationTransforms.has(sf)) {
+      this.ivyDeclarationTransforms.set(sf, new IvyDeclarationDtsTransform());
+    }
+    return this.ivyDeclarationTransforms.get(sf)!;
+  }
+
+  /**
+   * Gets the dts transforms to be applied for the given source file, or `null` if no transform is
+   * necessary.
+   */
+  getAllTransforms(sf: ts.SourceFile): DtsTransform[] | null {
+    // No need to transform if it's not a declarations file, or if no changes have been requested
+    // to the input file. Due to the way TypeScript afterDeclarations transformers work, the
+    // `ts.SourceFile` path is the same as the original .ts. The only way we know it's actually a
+    // declaration file is via the `isDeclarationFile` property.
+    if (!sf.isDeclarationFile) {
+      return null;
+    }
+    const originalSf = ts.getOriginalNode(sf) as ts.SourceFile;
+
+    let transforms: DtsTransform[] | null = null;
+    if (this.ivyDeclarationTransforms.has(originalSf)) {
+      transforms = [];
+      transforms.push(this.ivyDeclarationTransforms.get(originalSf)!);
+    }
+    return transforms;
+  }
+}
+
+export function declarationTransformFactory(
+  transformRegistry: DtsTransformRegistry,
+  reflector: ReflectionHost,
+  refEmitter: ReferenceEmitter,
+  importRewriter: ImportRewriter,
+): ts.TransformerFactory<ts.SourceFile> {
+  return (context: ts.TransformationContext) => {
+    const transformer = new DtsTransformer(context, reflector, refEmitter, importRewriter);
+    return (fileOrBundle) => {
+      if (ts.isBundle(fileOrBundle)) {
+        // Only attempt to transform source files.
+        return fileOrBundle;
+      }
+      const transforms = transformRegistry.getAllTransforms(fileOrBundle);
+      if (transforms === null) {
+        return fileOrBundle;
+      }
+      return transformer.transform(fileOrBundle, transforms);
+    };
+  };
+}
 
 /**
  * Processes .d.ts file text and adds static field declarations, with types.
  */
-export class DtsFileTransformer {
-  private ivyFields = new Map<string, CompileResult[]>();
-  private imports: ImportManager;
+class DtsTransformer {
+  constructor(
+    private ctx: ts.TransformationContext,
+    private reflector: ReflectionHost,
+    private refEmitter: ReferenceEmitter,
+    private importRewriter: ImportRewriter,
+  ) {}
 
-  constructor(private coreImportsFrom: ts.SourceFile|null, importPrefix?: string) {
-    this.imports = new ImportManager(coreImportsFrom !== null, importPrefix);
+  /**
+   * Transform the declaration file and add any declarations which were recorded.
+   */
+  transform(sf: ts.SourceFile, transforms: DtsTransform[]): ts.SourceFile {
+    const imports = new ImportManager({
+      ...presetImportManagerForceNamespaceImports,
+      rewriter: this.importRewriter,
+    });
+
+    const visitor: ts.Visitor = (node: ts.Node): ts.VisitResult<ts.Node> => {
+      if (ts.isClassDeclaration(node)) {
+        return this.transformClassDeclaration(node, transforms, imports);
+      } else {
+        // Otherwise return node as is.
+        return ts.visitEachChild(node, visitor, this.ctx);
+      }
+    };
+
+    // Recursively scan through the AST and process all nodes as desired.
+    sf = ts.visitNode(sf, visitor, ts.isSourceFile) || sf;
+
+    // Update/insert needed imports.
+    return imports.transformTsFile(this.ctx, sf);
   }
 
-  /**
-   * Track that a static field was added to the code for a class.
-   */
-  recordStaticField(name: string, decls: CompileResult[]): void { this.ivyFields.set(name, decls); }
+  private transformClassDeclaration(
+    clazz: ts.ClassDeclaration,
+    transforms: DtsTransform[],
+    imports: ImportManager,
+  ): ts.ClassDeclaration {
+    let newClazz: ts.ClassDeclaration = clazz;
 
-  /**
-   * Process the .d.ts text for a file and add any declarations which were recorded.
-   */
-  transform(dts: string, tsPath: string): string {
-    const dtsFile =
-        ts.createSourceFile('out.d.ts', dts, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
-
-    for (let i = dtsFile.statements.length - 1; i >= 0; i--) {
-      const stmt = dtsFile.statements[i];
-      if (ts.isClassDeclaration(stmt) && stmt.name !== undefined &&
-          this.ivyFields.has(stmt.name.text)) {
-        const decls = this.ivyFields.get(stmt.name.text) !;
-        const before = dts.substring(0, stmt.end - 1);
-        const after = dts.substring(stmt.end - 1);
-
-        dts = before +
-            decls
-                .map(decl => {
-                  const type = translateType(decl.type, this.imports);
-                  return `    static ${decl.name}: ${type};\n`;
-                })
-                .join('') +
-            after;
+    for (const transform of transforms) {
+      if (transform.transformClass !== undefined) {
+        newClazz = transform.transformClass(
+          newClazz,
+          newClazz.members,
+          this.reflector,
+          this.refEmitter,
+          imports,
+        );
       }
     }
 
-    const imports = this.imports.getAllImports(tsPath, this.coreImportsFrom);
-    if (imports.length !== 0) {
-      dts = imports.map(i => `import * as ${i.as} from '${i.name}';\n`).join('') + dts;
-    }
-
-    return dts;
+    return newClazz;
   }
+}
+
+export interface IvyDeclarationField {
+  name: string;
+  type: Type;
+}
+
+export class IvyDeclarationDtsTransform implements DtsTransform {
+  private declarationFields = new Map<ClassDeclaration, IvyDeclarationField[]>();
+
+  addFields(decl: ClassDeclaration, fields: IvyDeclarationField[]): void {
+    this.declarationFields.set(decl, fields);
+  }
+
+  transformClass(
+    clazz: ts.ClassDeclaration,
+    members: ReadonlyArray<ts.ClassElement>,
+    reflector: ReflectionHost,
+    refEmitter: ReferenceEmitter,
+    imports: ImportManager,
+  ): ts.ClassDeclaration {
+    const original = ts.getOriginalNode(clazz) as ClassDeclaration;
+
+    if (!this.declarationFields.has(original)) {
+      return clazz;
+    }
+    const fields = this.declarationFields.get(original)!;
+
+    const newMembers = fields.map((decl) => {
+      const modifiers = [ts.factory.createModifier(ts.SyntaxKind.StaticKeyword)];
+      const typeRef = translateType(
+        decl.type,
+        original.getSourceFile(),
+        reflector,
+        refEmitter,
+        imports,
+      );
+      markForEmitAsSingleLine(typeRef);
+      return ts.factory.createPropertyDeclaration(
+        /* modifiers */ modifiers,
+        /* name */ isUnsafeObjectKey(decl.name)
+          ? ts.factory.createStringLiteral(decl.name)
+          : decl.name,
+        /* questionOrExclamationToken */ undefined,
+        /* type */ typeRef,
+        /* initializer */ undefined,
+      );
+    });
+
+    return ts.factory.updateClassDeclaration(
+      /* node */ clazz,
+      /* modifiers */ clazz.modifiers,
+      /* name */ clazz.name,
+      /* typeParameters */ clazz.typeParameters,
+      /* heritageClauses */ clazz.heritageClauses,
+      /* members */ [...members, ...newMembers],
+    );
+  }
+}
+
+function markForEmitAsSingleLine(node: ts.Node) {
+  ts.setEmitFlags(node, ts.EmitFlags.SingleLine);
+  ts.forEachChild(node, markForEmitAsSingleLine);
 }

@@ -1,20 +1,19 @@
+load("//tools:defaults.bzl", "ts_project")
+
 package(default_visibility = ["//visibility:public"])
 
-load("//tools:defaults.bzl", "ts_library")
-
-ts_library(
+ts_project(
     name = "metadata",
-    srcs = glob([
-        "index.ts",
-        "src/*.ts",
+    srcs = ["index.ts"] + glob([
+        "src/**/*.ts",
     ]),
-    module_name = "@angular/compiler-cli/src/ngtsc/metadata",
     deps = [
-        "//packages:types",
+        "//:node_modules/typescript",
         "//packages/compiler",
-        "//packages/compiler-cli/src/ngtsc/host",
+        "//packages/compiler-cli/src/ngtsc/file_system",
+        "//packages/compiler-cli/src/ngtsc/imports",
+        "//packages/compiler-cli/src/ngtsc/partial_evaluator",
+        "//packages/compiler-cli/src/ngtsc/reflection",
         "//packages/compiler-cli/src/ngtsc/util",
-        "@ngdeps//@types/node",
-        "@ngdeps//typescript",
     ],
 )

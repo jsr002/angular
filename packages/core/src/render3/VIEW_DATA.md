@@ -11,24 +11,22 @@ For example index `123` may point to a component instance in the `LView` but a c
 
 The layout is as such:
 
-| Section    | `LView`                                                  | `TView.data`
-| ---------- | ------------------------------------------------------------ | --------------------------------------------------
-| `HEADER`   | contextual data                                              |  mostly `null`
-| `CONSTS`   | DOM, pipe, and local ref instances                           |
-| `VARS`     | binding values                                               |  property names
-| `EXPANDO`  | host bindings; directive instances; providers; dynamic nodes | host prop names; directive tokens; provider tokens; `null`
-
+| Section   | `LView`                                                      | `TView.data`                                               |
+| --------- | ------------------------------------------------------------ | ---------------------------------------------------------- |
+| `HEADER`  | contextual data                                              | mostly `null`                                              |
+| `DECLS`   | DOM, pipe, and local ref instances                           |                                                            |
+| `VARS`    | binding values                                               | property names                                             |
+| `EXPANDO` | host bindings; directive instances; providers; dynamic nodes | host prop names; directive tokens; provider tokens; `null` |
 
 ## `HEADER`
 
 `HEADER` is a fixed array size which contains contextual information about the template.
 Mostly information such as parent `LView`, `Sanitizer`, `TView`, and many more bits of information needed for template rendering.
 
+## `DECLS`
 
-## `CONSTS`
-
-`CONSTS` contain the DOM elements, pipe instances, and local refs.
-The size of the `CONSTS` section is declared in the property `consts` of the component definition.
+`DECLS` contain the DOM elements, pipe instances, and local refs.
+The size of the `DECLS` section is declared in the property `decls` of the component definition.
 
 ```typescript
 @Component({
@@ -36,18 +34,18 @@ The size of the `CONSTS` section is declared in the property `consts` of the com
 })
 class MyApp {
 
-  static ngComponentDef = defineComponent({
+  static ɵcmp = ɵɵdefineComponent({
     ...,
-    consts: 5,
+    decls: 5,
     template: function(rf: RenderFlags, ctx: MyApp) {
       if (rf & RenderFlags.Create) {
-        elementStart(0, 'div');
-        text(1, 'Hello ');
-        elementStart(2, 'b');
-        text(3, 'World');
-        elementEnd();
-        text(4, '!');
-        elementEnd();
+        ɵɵelementStart(0, 'div');
+        ɵɵtext(1, 'Hello ');
+        ɵɵelementStart(2, 'b');
+        ɵɵtext(3, 'World');
+        ɵɵelementEnd();
+        ɵɵtext(4, '!');
+        ɵɵelementEnd();
       }
       ...
     }
@@ -57,23 +55,23 @@ class MyApp {
 
 The above will create following layout:
 
-| Index | `LView`         | `TView.data`
-| ----: | -----------         | ------------
-| `HEADER`
-| `CONSTS`
-| 10    | `<div>`             | `{type: Element, index: 10, parent: null}`
-| 11    | `#text(Hello )`     | `{type: Element, index: 11, parent: tView.data[10]}`
-| 12    | `<b>`               | `{type: Element, index: 12, parent: tView.data[10]}`
-| 13    | `#text(World)`      | `{type: Element, index: 13, parent: tView.data[12]}`
-| 14    | `#text(!)`          | `{type: Element, index: 14, parent: tView.data[10]}`
-| ...   | ...                 | ...
+|    Index | `LView`         | `TView.data`                                         |
+| -------: | --------------- | ---------------------------------------------------- |
+| `HEADER` |                 |                                                      |
+|  `DECLS` |                 |                                                      |
+|       10 | `<div>`         | `{type: Element, index: 10, parent: null}`           |
+|       11 | `#text(Hello )` | `{type: Element, index: 11, parent: tView.data[10]}` |
+|       12 | `<b>`           | `{type: Element, index: 12, parent: tView.data[10]}` |
+|       13 | `#text(World)`  | `{type: Element, index: 13, parent: tView.data[12]}` |
+|       14 | `#text(!)`      | `{type: Element, index: 14, parent: tView.data[10]}` |
+|      ... | ...             | ...                                                  |
 
 NOTE:
+
 - The `10` is not the actual size of `HEADER` but it is left here for simplification.
 - `LView` contains DOM instances only
 - `TView.data` contains information on relationships such as where the parent is.
   You need the `TView.data` information to make sense of the `LView` information.
-
 
 ## `VARS`
 
@@ -87,19 +85,20 @@ The size of the `VARS `section is declared in the property `vars` of the compone
 class MyApp {
   name = 'World';
 
-  static ngComponentDef = defineComponent({
+  static ɵcmp = ɵɵdefineComponent({
     ...,
-    consts: 2, // Two DOM Elements.
+    decls: 2, // Two DOM Elements.
     vars: 2,   // Two bindings.
     template: function(rf: RenderFlags, ctx: MyApp) {
       if (rf & RenderFlags.Create) {
-        elementStart(0, 'div');
-        text(1);
-        elementEnd();
+        ɵɵelementStart(0, 'div');
+        ɵɵtext(1);
+        ɵɵelementEnd();
       }
       if (rf & RenderFlags.Update) {
-        elementProperty(0, 'title', bind(ctx.name));
-        textBinding(1, interpolation1('Hello ', ctx.name, '!'));
+        ɵɵproperty('title', ctx.name);
+        ɵɵadvance();
+        ɵɵtextInterpolate1('Hello ', ctx.name, '!');
       }
       ...
     }
@@ -109,27 +108,27 @@ class MyApp {
 
 The above will create following layout:
 
-| Index | `LView`         | `TView.data`
-| ----: | -----------         | ------------
-| `HEADER`
-| `CONSTS`
-| 10    | `<div>`             | `{type: Element, index: 10, parent: null}`
-| 11    | `#text()`           | `{type: Element, index: 11, parent: tView.data[10]}`
-| `VARS`
-| 12    | `'World'`           | `'title'`
-| 13    | `'World'`           | `null`
-| ...   | ...                 | ...
+|    Index | `LView`   | `TView.data`                                         |
+| -------: | --------- | ---------------------------------------------------- |
+| `HEADER` |           |                                                      |
+|  `DECLS` |           |                                                      |
+|       10 | `<div>`   | `{type: Element, index: 10, parent: null}`           |
+|       11 | `#text()` | `{type: Element, index: 11, parent: tView.data[10]}` |
+|   `VARS` |           |                                                      |
+|       12 | `'World'` | `'title'`                                            |
+|       13 | `'World'` | `null`                                               |
+|      ... | ...       | ...                                                  |
 
 NOTE:
+
 - `LView` contain DOM instances and previous binding values only
 - `TView.data` contains information on relationships and property labels.
-
-
 
 ## `EXPANDO`
 
 `EXPANDO` contains information on data which size is not known at compile time.
 Examples include:
+
 - `Component`/`Directives` since we don't know at compile time which directives will match.
 - Host bindings, since until we match the directives it is unclear how many host bindings need to be allocated.
 
@@ -139,12 +138,12 @@ Examples include:
 })
 class MyApp {
 
-  static ngComponentDef = defineComponent({
+  static ɵcmp = ɵɵdefineComponent({
     ...,
-    consts: 1,
+    decls: 1,
     template: function(rf: RenderFlags, ctx: MyApp) {
       if (rf & RenderFlags.Create) {
-        element(0, 'child', ['tooltip', null]);
+        ɵɵelement(0, 'child', ['tooltip', null]);
       }
       ...
     },
@@ -159,7 +158,7 @@ class MyApp {
 })
 class Child {
   @HostBinding('tooltip') hostTitle = 'Hello World!';
-  static ngComponentDef = defineComponent({
+  static ɵcmp = ɵɵdefineComponent({
     ...
     hostVars: 1
   });
@@ -171,7 +170,7 @@ class Child {
 })
 class Tooltip {
   @HostBinding('title') hostTitle = 'greeting';
-  static ngDirectiveDef = defineDirective({
+  static ɵdir = ɵɵdefineDirective({
     ...
     hostVars: 1
   });
@@ -179,74 +178,21 @@ class Tooltip {
 }
 ```
 
-
 The above will create the following layout:
 
-| Index | `LView`         | `TView.data`
-| ----: | -----------         | ------------
-| `HEADER`
-| `CONSTS`
-| 10    | `[<child>, ...]`    | `{type: Element, index: 10, parent: null}`
-| `VARS`
-| `EXPANDO`
-| 11..18| cumulativeBloom     | templateBloom
-| 19    | `new Child()`       | `Child`
-| 20    | `new Tooltip()`     | `Tooltip`
-| 21    | `'Hello World!'`    | `'tooltip'`
-| 22    | `'greeting'`        | `'title'`
-| ...   | ...                 | ...
-
-
-The `EXPANDO` section needs additional information for information stored in `TView.expandoInstructions`
-
-| Index | `TView.expandoInstructions`         | Meaning
-| ----: | ---------------------------:        | -------
-| 0     | -10                                 | Negative numbers signify pointers to elements. In this case 10 (`<child>`)
-| 1     | 2                                   | Injector size. Number of values to skip to get to Host Bindings.
-| 2     | Child.ngComponentDef.hostBindings   | The function to call. (Only when `hostVars` is not `0`)
-| 3     | Child.ngComponentDef.hostVars       | Number of host bindings to process. (Only when `hostVars` is not `0`)
-| 4     | Tooltip.ngDirectiveDef.hostBindings | The function to call. (Only when `hostVars` is not `0`)
-| 5     | Tooltip.ngDirectiveDef.hostVars     | Number of host bindings to process. (Only when `hostVars` is not `0`)
-
-The reason for this layout is to make the host binding update efficient using this pseudo code:
-```typescript
-let currentDirectiveIndex = -1;
-let currentElementIndex = -1;
-// This is global state which is used internally by hostBindings to know where the offset is
-let bindingRootIndex = tView.expandoStartIndex;
-for(var i = 0; i < tView.expandoInstructions.length; i++) {
-  let instruction = tView.expandoInstructions[i];
-  if (typeof instruction === 'number') {
-    // Numbers are used to update the indices.
-    if (instruction < 0) {
-      // Negative numbers means that we are starting new EXPANDO block and need to update current element and directive index
-      bindingRootIndex += BLOOM_OFFSET;
-      currentDirectiveIndex = bindingRootIndex;
-      currentElementIndex = -instruction;
-    } else {
-      bindingRootIndex += instruction;
-    }
-  } else {
-    // We know that we are hostBinding function so execute it.
-    instruction(currentDirectiveIndex, currentElementIndex);
-    currentDirectiveIndex++;
-  }
-}
-```
-
-The above code should execute as:
-
-| Instruction                           | `bindingRootIndex` | `currentDirectiveIndex`   | `currentElementIndex`
-| ----------:                           | -----------------: | ----------------------:   | --------------------:
-| (initial)                             | `11`               | `-1`                      | `-1`
-| `-10`                                 | `19`               | `\* new Child() *\ 19`    | `\* <child> *\ 10`
-| `2`                                   | `21`               | `\* new Child() *\ 19`    | `\* <child> *\ 10`
-| `Child.ngComponentDef.hostBindings`   | invoke with =>     | `\* new Child() *\ 19`    | `\* <child> *\ 10`
-|                                       | `21`               | `\* new Tooltip() *\ 20`  | `\* <child> *\ 10`
-| `Child.ngComponentDef.hostVars`       | `22`               | `\* new Tooltip() *\ 20`  | `\* <child> *\ 10`
-| `Tooltip.ngDirectiveDef.hostBindings` | invoke with =>     | `\* new Tooltip() *\ 20`  | `\* <child> *\ 10`
-|                                       | `22`               | `21`                      | `\* <child> *\ 10`
-| `Tooltip.ngDirectiveDef.hostVars`     | `22`               | `21`                      | `\* <child> *\ 10`
+|     Index | `LView`          | `TView.data`                               |
+| --------: | ---------------- | ------------------------------------------ |
+|  `HEADER` |                  |                                            |
+|   `DECLS` |                  |                                            |
+|        10 | `[<child>, ...]` | `{type: Element, index: 10, parent: null}` |
+|    `VARS` |                  |                                            |
+| `EXPANDO` |                  |                                            |
+|    11..18 | cumulativeBloom  | templateBloom                              |
+|        19 | `new Child()`    | `Child`                                    |
+|        20 | `new Tooltip()`  | `Tooltip`                                  |
+|        21 | `'Hello World!'` | `'tooltip'`                                |
+|        22 | `'greeting'`     | `'title'`                                  |
+|       ... | ...              | ...                                        |
 
 ## `EXPANDO` and Injection
 
@@ -255,6 +201,7 @@ This is because at the time of compilation we don't know about all of the inject
 (The injection tokens are part of the Component hence hide behind a selector and are not available to the parent component.)
 
 Injection needs to store three things:
+
 - The injection token stored in `TView.data`
 - The token factory stored in `LProtoViewData` and subsequently in `LView`
 - The value for the injection token stored in `LView`. (Replacing token factory upon creation).
@@ -263,6 +210,7 @@ To save time when creating `LView` we use an array clone operation to copy data 
 The `LProtoViewData` is initialized by the `ProvidesFeature`.
 
 Injection tokens are sorted into three sections:
+
 1. `directives`: Used to denote eagerly created items representing directives and component.
 2. `providers`: Used to denote items visible to component, component's view and component's content.
 3. `viewProviders`: Used to denote items only visible to the component's view.
@@ -273,12 +221,12 @@ Injection tokens are sorted into three sections:
 })
 class MyApp {
 
-  static ngComponentDef = defineComponent({
+  static ɵcmp = ɵɵdefineComponent({
     ...,
-    consts: 1,
+    decls: 1,
     template: function(rf: RenderFlags, ctx: MyApp) {
       if (rf & RenderFlags.Create) {
-        element(0, 'child');
+        ɵɵelement(0, 'child');
       }
       ...
     },
@@ -301,7 +249,7 @@ class MyApp {
 })
 class Child {
   construction(injector: Injector) {}
-  static ngComponentDef = defineComponent({
+  static ɵcmp = ɵɵdefineComponent({
     ...
     features: [
       ProvidesFeature(
@@ -321,34 +269,36 @@ class Child {
 
 The above will create the following layout:
 
-| Index | `LView`                                  | `TView.data`
-| ----: | ------------                                 | -------------
-| `HEADER`
-| `CONSTS`
-| 10    | `[<child>, ...]`                             | `{type: Element, index: 10, parent: null, expandoIndex: 11, directivesIndex: 19, providersIndex: 20, viewProvidersIndex: 22, expandoEnd: 23}`
-| `VARS`
-| `EXPANDO`
-| 11..18| cumulativeBloom                              | templateBloom
-|       | *sub-section: `component` and `directives`*
-| 19    | `factory(Child.ngComponentDef.factory)`*     | `Child`
-|       | *sub-section: `providers`*
-| 20    | `factory(ServiceA.ngInjectableDef.factory)`* | `ServiceA`
-| 22    | `'someServiceBValue'`*                       | `ServiceB`
-|       | *sub-section: `viewProviders`*
-| 22    | `factory(()=> new Service())`*               | `ServiceC`
-| 22    | `factory(()=> directiveInject(ServiceE))`*   | `ServiceD`
-| ...   | ...                   | ...
+|     Index | `LView`                                      | `TView.data`                                                                                                                                  |
+| --------: | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+|  `HEADER` |                                              |                                                                                                                                               |
+|   `DECLS` |                                              |                                                                                                                                               |
+|        10 | `[<child>, ...]`                             | `{type: Element, index: 10, parent: null, expandoIndex: 11, directivesIndex: 19, providersIndex: 20, viewProvidersIndex: 22, expandoEnd: 23}` |
+|    `VARS` |                                              |                                                                                                                                               |
+| `EXPANDO` |                                              |                                                                                                                                               |
+|    11..18 | cumulativeBloom                              | templateBloom                                                                                                                                 |
+|           | _sub-section: `component` and `directives`_  |                                                                                                                                               |
+|        19 | `factory(Child.ɵcmp.factory)`\*              | `Child`                                                                                                                                       |
+|           | _sub-section: `providers`_                   |                                                                                                                                               |
+|        20 | `factory(ServiceA.ɵprov.factory)`\*          | `ServiceA`                                                                                                                                    |
+|        22 | `'someServiceBValue'`\*                      | `ServiceB`                                                                                                                                    |
+|           | _sub-section: `viewProviders`_               |                                                                                                                                               |
+|        22 | `factory(() => new Service())`\*             | `ServiceC`                                                                                                                                    |
+|        22 | `factory(() => directiveInject(ServiceE))`\* | `ServiceD`                                                                                                                                    |
+|       ... | ...                                          | ...                                                                                                                                           |
 
 NOTICE:
+
 - `*` denotes initial value copied from the `LProtoViewData`, as the tokens get instantiated the factories are replaced with actual value.
 - That `TView.data` has `expando` and `expandoInjectorCount` properties which point to where the element injection data is stored.
 - That all injectable tokens are stored in linear sequence making it easy to search for instances to match.
 - That `directive` sub-section gets eagerly instantiated.
 
 Where `factory` is a function which wraps the factory into object which can be monomorphically detected at runtime in an efficient way.
+
 ```TypeScript
 class Factory {
-  /// Marker set to true during factory invocation to see if we get into recursive loop. 
+  /// Marker set to true during factory invocation to see if we get into recursive loop.
   /// Recursive loop causes an error to be displayed.
   resolving = false;
   constructor(public factory: Function) { }
@@ -358,12 +308,12 @@ function factory(fn) {
 }
 const FactoryPrototype = Factory.prototype;
 function isFactory(obj: any): obj is Factory {
-  // See: https://jsperf.com/instanceof-vs-getprototypeof
   return typeof obj === 'object' && Object.getPrototypeOf(obj) === FactoryPrototype;
 }
 ```
 
 Pseudo code:
+
 1. Check if bloom filter has the value of the token. (If not exit)
 2. Locate the token in the expando honoring `directives`, `providers` and `viewProvider` rules by limiting the search scope.
 3. Read the value of `lView[index]` at that location.
@@ -376,13 +326,13 @@ There are several special objects such as `ElementRef`, `ViewContainerRef`, etc.
 These objects behave as if they are always included in the `providers` array of every component and directive.
 Adding them always there would prevent tree shaking so they need to be lazily included.
 
-NOTE: 
+NOTE:
 An interesting thing about these objects is that they are not memoized `injector.get(ElementRef) !== injector.get(ElementRef)`.
 This could be considered a bug, it means that we don't have to allocate storage space for them.
 
 We should treat these special objects like any other token. `directiveInject()` already reads a special `NG_ELEMENT_ID`
-property set on directives to locate their bit in the bloom filter. We can set this same property on special objects, 
-but point to a factory function rather than an element ID number. When we check that property in `directiveInject()` 
+property set on directives to locate their bit in the bloom filter. We can set this same property on special objects,
+but point to a factory function rather than an element ID number. When we check that property in `directiveInject()`
 and see that it's a function, we know to invoke the factory function directly instead of searching the node tree.
 
 ```typescript
@@ -419,10 +369,10 @@ A pseudo-implementation of `inject` function.
 ```typescript
 function inject(token: any): any {
   let injectableDef;
-  if (typeof token === 'function' && injectableDef = token.ngInjectableDef) {
+  if (typeof token === 'function' && injectableDef = token.ɵprov) {
     const provideIn = injectableDef.provideIn;
    if (provideIn === '__node_injector__') {
-      // if we are injecting `Injector` than create a wrapper object around the inject but which 
+      // if we are injecting `Injector` than create a wrapper object around the inject but which
       // is bound to the current node.
       return createInjector();
     }
@@ -430,8 +380,6 @@ function inject(token: any): any {
   return lookupTokenInExpando(token);
 }
 ```
-
-
 
 # `LContainer`
 

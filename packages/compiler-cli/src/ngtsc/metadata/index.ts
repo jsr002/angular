@@ -1,12 +1,29 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
-/// <reference types="node" />
-
-export {TypeScriptReflectionHost, filterToMembersWithDecorator, findMember, reflectObjectLiteral, reflectTypeEntityToDeclaration} from './src/reflector';
-export {AbsoluteReference, EnumValue, ImportMode, Reference, ResolvedReference, ResolvedValue, isDynamicValue, staticallyResolve} from './src/resolver';
+export * from './src/api';
+export {DtsMetadataReader} from './src/dts';
+export {flattenInheritedDirectiveMetadata} from './src/inheritance';
+export {CompoundMetadataRegistry, LocalMetadataRegistry} from './src/registry';
+export {
+  ResourceRegistry,
+  Resource,
+  DirectiveResources,
+  isExternalResource,
+  ExternalResource,
+} from './src/resource_registry';
+export {
+  extractDirectiveTypeCheckMeta,
+  hasInjectableFields,
+  CompoundMetadataReader,
+  isHostDirectiveMetaForGlobalMode,
+  createForeignComponentMatcher,
+  readBaseClass,
+} from './src/util';
+export {ExportedProviderStatusResolver} from './src/providers';
+export {HostDirectivesResolver} from './src/host_directives_resolver';

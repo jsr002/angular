@@ -1,38 +1,43 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 import {ResourceLoader} from '@angular/compiler';
-import {Compiler, Component, NgModule} from '@angular/core';
-import {TestBed, async, fakeAsync, inject, tick} from '@angular/core/testing';
-
+import {
+  Compiler,
+  Component,
+  getPlatform,
+  NgModule,
+  provideZonelessChangeDetection,
+} from '@angular/core';
+import {TestBed} from '@angular/core/testing';
+import {NoopAnimationsModule} from '@angular/platform-browser/animations';
+import {BrowserTestingModule, platformBrowserTesting} from '@angular/platform-browser/testing';
+import {isBrowser} from '@angular/private/testing';
 import {ResourceLoaderImpl} from '../src/resource_loader/resource_loader_impl';
-
-
+import {BrowserDynamicTestingModule, platformBrowserDynamicTesting} from '../testing';
+@NgModule({
+  providers: [provideZonelessChangeDetection()],
+})
+export class TestModule {}
 
 // Components for the tests.
 class FancyService {
   value: string = 'real value';
-  getAsyncValue() { return Promise.resolve('async value'); }
-  getTimeoutValue() {
-    return new Promise(
-        (resolve, reject) => { setTimeout(() => { resolve('timeout value'); }, 10); });
+  getAsyncValue() {
+    return Promise.resolve('async value');
   }
-}
-
-@Component({
-  selector: 'external-template-comp',
-  templateUrl: '/base/angular/packages/platform-browser/test/static_assets/test.html'
-})
-class ExternalTemplateComp {
-}
-
-@Component({selector: 'bad-template-comp', templateUrl: 'non-existent.html'})
-class BadTemplateUrl {
+  getTimeoutValue() {
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
+        resolve('timeout value');
+      }, 10);
+    });
+  }
 }
 
 // Tests for angular/testing bundle specific to the browser environment.
@@ -40,40 +45,59 @@ class BadTemplateUrl {
 if (isBrowser) {
   describe('test APIs for the browser', () => {
     describe('using the async helper', () => {
-      let actuallyDone: boolean;
-
-      beforeEach(() => { actuallyDone = false; });
-
-      afterEach(() => { expect(actuallyDone).toEqual(true); });
-
-      it('should run async tests with ResourceLoaders', async(() => {
-           const resourceLoader = new ResourceLoaderImpl();
-           resourceLoader
-               .get('/base/angular/packages/platform-browser/test/static_assets/test.html')
-               .then(() => { actuallyDone = true; });
-         }),
-         10000);  // Long timeout here because this test makes an actual ResourceLoader.
+      it('should run async tests with ResourceLoaders', async () => {
+        let actuallyDone = false;
+        const resourceLoader = new ResourceLoaderImpl();
+        await resourceLoader
+          .get('/packages/platform-browser/test/static_assets/test.html')
+          .then(() => {
+            actuallyDone = true;
+          });
+        expect(actuallyDone).toEqual(true);
+      });
     });
 
     describe('using the test injector with the inject helper', () => {
       describe('setting up Providers', () => {
         beforeEach(() => {
-          TestBed.configureTestingModule(
-              {providers: [{provide: FancyService, useValue: new FancyService()}]});
+          getPlatform()?.destroy();
+          // We need to reset the test environment because
+          // browser_tests.init.ts doesn't use platformBrowserDynamicTesting
+          TestBed.resetTestEnvironment();
+          TestBed.initTestEnvironment(
+            [BrowserDynamicTestingModule, TestModule],
+            platformBrowserDynamicTesting(),
+          );
+
+          TestBed.configureTestingModule({
+            providers: [{provide: FancyService, useValue: new FancyService()}],
+          });
         });
 
-        it('provides a real ResourceLoader instance',
-           inject([ResourceLoader], (resourceLoader: ResourceLoader) => {
-             expect(resourceLoader instanceof ResourceLoaderImpl).toBeTruthy();
-           }));
+        it('provides a real ResourceLoader instance', () => {
+          const resourceLoader = TestBed.inject(ResourceLoader);
+          expect(resourceLoader instanceof ResourceLoaderImpl).toBeTruthy();
+        });
 
-        it('should allow the use of fakeAsync',
-           fakeAsync(inject([FancyService], (service: any /** TODO #9100 */) => {
-             let value: any /** TODO #9100 */;
-             service.getAsyncValue().then(function(val: any /** TODO #9100 */) { value = val; });
-             tick();
-             expect(value).toEqual('async value');
-           })));
+        it('should allow the use of async/await', async () => {
+          const service = TestBed.inject(FancyService);
+          let value: string | undefined;
+          await service.getAsyncValue().then(function (val: string) {
+            value = val;
+          });
+          expect(value).toEqual('async value');
+        });
+
+        afterEach(() => {
+          getPlatform()?.destroy();
+
+          // We're reset the test environment to their default values, cf browser_tests.init.ts
+          TestBed.resetTestEnvironment();
+          TestBed.initTestEnvironment(
+            [BrowserTestingModule, NoopAnimationsModule, TestModule],
+            platformBrowserTesting(),
+          );
+        });
       });
     });
 
@@ -82,70 +106,89 @@ if (isBrowser) {
         @NgModule({
           id: 'test-module',
         })
-        class TestModule {
-        }
+        class TestModule {}
 
         TestBed.configureTestingModule({
           imports: [TestModule],
         });
-        const compiler = TestBed.get(Compiler) as Compiler;
+        const compiler = TestBed.inject(Compiler);
         expect(compiler.getModuleId(TestModule)).toBe('test-module');
       });
     });
 
     describe('errors', () => {
-      let originalJasmineIt: any;
-
-      const patchJasmineIt = () => {
-        let resolve: (result: any) => void;
-        let reject: (error: any) => void;
-        const promise = new Promise((res, rej) => {
-          resolve = res;
-          reject = rej;
+      describe('should fail when an ResourceLoader fails', () => {
+        beforeEach(() => {
+          getPlatform()?.destroy();
+          TestBed.resetTestEnvironment();
+          TestBed.initTestEnvironment(
+            [BrowserDynamicTestingModule],
+            platformBrowserDynamicTesting(),
+          );
         });
-        originalJasmineIt = jasmine.getEnv().it;
-        jasmine.getEnv().it = (description: string, fn: (done: DoneFn) => void): any => {
-          const done = (() => resolve(null)) as DoneFn;
-          done.fail = reject;
-          fn(done);
-          return null;
-        };
-        return promise;
-      };
 
-      const restoreJasmineIt = () => { jasmine.getEnv().it = originalJasmineIt; };
+        afterEach(() => {
+          getPlatform()?.destroy();
+          TestBed.resetTestEnvironment();
+          TestBed.initTestEnvironment([BrowserTestingModule], platformBrowserTesting());
+        });
 
-      it('should fail when an ResourceLoader fails', done => {
-        const itPromise = patchJasmineIt();
+        it('should fail with an error from a promise', async () => {
+          @Component({
+            templateUrl: 'non-existent.html',
+            standalone: false,
+          })
+          class BadTemplateUrl {}
 
-        it('should fail with an error from a promise', async(() => {
-             TestBed.configureTestingModule({declarations: [BadTemplateUrl]});
-             TestBed.compileComponents();
-           }));
+          TestBed.configureTestingModule({
+            declarations: [BadTemplateUrl],
+          });
 
-        itPromise.then(
-            () => { done.fail('Expected test to fail, but it did not'); },
-            (err: any) => {
-              expect(err.message)
-                  .toEqual('Uncaught (in promise): Failed to load non-existent.html');
-              done();
-            });
-        restoreJasmineIt();
-      }, 10000);
+          await expectAsync(TestBed.compileComponents()).toBeRejectedWith(
+            'Failed to load non-existent.html',
+          );
+        }, 10000);
+      });
     });
 
-    describe('TestBed createComponent', function() {
-      it('should allow an external templateUrl', async(() => {
-           TestBed.configureTestingModule({declarations: [ExternalTemplateComp]});
-           TestBed.compileComponents().then(() => {
-             const componentFixture = TestBed.createComponent(ExternalTemplateComp);
-             componentFixture.detectChanges();
-             expect(componentFixture.nativeElement.textContent).toEqual('from external template');
-           });
-         }),
-         10000);  // Long timeout here because this test makes an actual ResourceLoader request, and
-                  // is slow
-                  // on Edge.
+    describe('TestBed createComponent', function () {
+      beforeEach(() => {
+        getPlatform()?.destroy();
+        TestBed.resetTestEnvironment();
+        TestBed.initTestEnvironment([BrowserDynamicTestingModule], platformBrowserDynamicTesting());
+      });
+
+      afterEach(() => {
+        getPlatform()?.destroy();
+        TestBed.resetTestEnvironment();
+        TestBed.initTestEnvironment([BrowserTestingModule], platformBrowserTesting());
+      });
+
+      it('should allow an external templateUrl', async () => {
+        class MockResourceLoader implements ResourceLoader {
+          get(url: string): Promise<string> {
+            return Promise.resolve('from external template');
+          }
+        }
+
+        @Component({
+          templateUrl: '/base/angular/packages/platform-browser/test/static_assets/test.html',
+          standalone: false,
+        })
+        class ExternalTemplateComp {}
+
+        TestBed.configureCompiler({
+          providers: [{provide: ResourceLoader, useClass: MockResourceLoader}],
+        });
+        TestBed.configureTestingModule({
+          declarations: [ExternalTemplateComp],
+        });
+
+        await TestBed.compileComponents();
+        const componentFixture = TestBed.createComponent(ExternalTemplateComp);
+        componentFixture.detectChanges();
+        expect(componentFixture.nativeElement.textContent).toEqual('from external template');
+      });
     });
   });
 }

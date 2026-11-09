@@ -1,9 +1,9 @@
 /**
  * @license
- * Copyright Google Inc. All Rights Reserved.
+ * Copyright Google LLC All Rights Reserved.
  *
  * Use of this source code is governed by an MIT-style license that can be
- * found in the LICENSE file at https://angular.io/license
+ * found in the LICENSE file at https://angular.dev/license
  */
 
 /*
@@ -14,19 +14,26 @@
  * compiler writes imports to this file.
  *
  * Only a subset of such imports are supported - core is not allowed to declare components or pipes.
- * A check in ngtsc's translator.ts validates this condition. The translator is responsible for
- * translating an external name (prefixed with ɵ) to the internal symbol name as exported below.
+ * A check in ngtsc's `R3SymbolsImportRewriter` validates this condition. The rewriter is only used
+ * when compiling @angular/core and is responsible for translating an external name (prefixed with
+ * ɵ) to the internal symbol name as exported below.
  *
  * The below symbols are used for @Injectable and @NgModule compilation.
  */
 
-export {InjectableDef, InjectorDef, defineInjectable, defineInjector} from './di/defs';
-export {inject} from './di/injector_compatibility';
-export {NgModuleDef, NgModuleDefWithMeta} from './metadata/ng_module';
-export {defineNgModule} from './render3/definition';
-export {setClassMetadata} from './render3/metadata';
+export {ɵɵinject} from './di/injector_compatibility';
+export {ɵɵdefineInjectable, ɵɵdefineInjector, ɵɵInjectableDeclaration} from './di/interface/defs';
+export {ɵɵdefineService} from './di/interface/service';
+export {NgModuleDef} from './metadata/ng_module_def';
+export {ɵɵdefineNgModule} from './render3/definition';
+export {
+  ɵɵFactoryDeclaration,
+  ɵɵInjectorDeclaration,
+  ɵɵNgModuleDeclaration,
+} from './render3/interfaces/public_definitions';
+export {setClassMetadata, setClassMetadataAsync} from './render3/metadata';
 export {NgModuleFactory} from './render3/ng_module_ref';
-
+export {noSideEffects as ɵnoSideEffects} from './util/closure';
 
 /**
  * The existence of this constant (in this particular file) informs the Angular compiler that the

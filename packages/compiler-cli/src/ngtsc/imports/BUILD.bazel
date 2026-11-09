@@ -1,0 +1,32 @@
+load("//tools:defaults.bzl", "ts_project")
+
+package(default_visibility = ["//visibility:public"])
+
+ts_project(
+    name = "core_symbols",
+    srcs = ["src/core_symbols.ts"],
+)
+
+ts_project(
+    name = "imports",
+    srcs = ["index.ts"] + glob(
+        [
+            "src/*.ts",
+        ],
+        exclude = [
+            "src/core_symbols.ts",
+        ],
+    ),
+    deps = [
+        ":core_symbols",
+        "//:node_modules/@types/node",
+        "//:node_modules/typescript",
+        "//packages:types",
+        "//packages/compiler",
+        "//packages/compiler-cli/src/ngtsc/core:api",
+        "//packages/compiler-cli/src/ngtsc/diagnostics",
+        "//packages/compiler-cli/src/ngtsc/file_system",
+        "//packages/compiler-cli/src/ngtsc/reflection",
+        "//packages/compiler-cli/src/ngtsc/util",
+    ],
+)
